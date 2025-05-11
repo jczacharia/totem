@@ -324,7 +324,7 @@ public:
                 const char rightshift = std::max(bitplane - bitshift - 2, 0);
                 // calculate the OE disable period by brightness, and also blanking
                 int brightness_in_x_pixels = ((_width - _blank) * brightness) >> (7 + rightshift);
-                brightness_in_x_pixels = brightness_in_x_pixels >> 1 | brightness_in_x_pixels & 1;
+                brightness_in_x_pixels = (brightness_in_x_pixels >> 1) | (brightness_in_x_pixels & 1);
 
                 // switch pointer to a row for a specific color index
                 const auto row = dmaDescAt(row_idx * MATRIX_COLOR_DEPTH + color_idx);

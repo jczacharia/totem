@@ -8,7 +8,7 @@
 #include "mdns.h"
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
-#include "RestServer.hpp"
+#include "RestServer.h"
 #include "Totem.hpp"
 #include "Microphone.hpp"
 
@@ -17,17 +17,12 @@
 #define MDNS_HOST_NAME "esp-home"
 #define MDNS_INSTANCE "totem server"
 
-static constexpr auto TAG = "Main";
-
-extern "C" void app_main(void)
+static void init()
 {
     const size_t mem_cnt = esp_himem_get_phys_size();
     const size_t mem_free = esp_himem_get_free_size();
-    ESP_LOGI(TAG, "Himem has %dKiB of memory, %dKiB of which is free",
+    ESP_LOGI("main", "Himem has %dKiB of memory, %dKiB of which is free",
              static_cast<int>(mem_cnt) / 1024, static_cast<int>(mem_free) / 1024);
-
-    LedMatrix::getInstance();
-    Microphone::getInstance();
 
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
@@ -55,7 +50,13 @@ extern "C" void app_main(void)
 
     ESP_ERROR_CHECK(example_connect());
     // ESP_ERROR_CHECK(init_fs());
+}
 
+extern "C" void app_main(void)
+{
+    init();
+    LedMatrix::getInstance();
+    Microphone::getInstance();
     Totem totem;
     RestServer::Start(totem);
     std::this_thread::sleep_for(std::chrono::years::max());

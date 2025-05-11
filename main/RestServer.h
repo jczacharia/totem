@@ -6,7 +6,6 @@
 #include "esp_vfs.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
-#include "LedMatrix.hpp"
 #include "esp_chip_info.h"
 #include "Totem.hpp"
 
@@ -54,26 +53,28 @@ class RestServer
         const httpd_uri_t system_info_get_uri = {
             .uri = "/api/v1/matrix/rgb",
             .method = HTTP_POST,
-            .handler = [](httpd_req_t* req) -> esp_err_t
-            {
-                auto body_or_error = readRequestBody(req);
-                if (!body_or_error) return body_or_error.error();
-
-                cJSON* root = cJSON_Parse(body_or_error.value().c_str());
-                const uint8_t red = cJSON_GetObjectItem(root, "red")->valueint;
-                const uint8_t green = cJSON_GetObjectItem(root, "green")->valueint;
-                const uint8_t blue = cJSON_GetObjectItem(root, "blue")->valueint;
-                cJSON_Delete(root);
-
-                const auto totem = static_cast<Totem*>(req->user_ctx);
-                totem->setRgbMode(red, green, blue);
-
-                httpd_resp_sendstr(req, "RGB changed successfully");
-                return ESP_OK;
-            },
+            .handler = rgbEndpoint,
             .user_ctx = &_totem,
         };
         httpd_register_uri_handler(_server_handle, &system_info_get_uri);
+    }
+
+    static esp_err_t rgbEndpoint(httpd_req_t* req)
+    {
+        auto body_or_error = readRequestBody(req);
+        if (!body_or_error) return body_or_error.error();
+
+        cJSON* root = cJSON_Parse(body_or_error.value().c_str());
+        const uint8_t red = cJSON_GetObjectItem(root, "red")->valueint;
+        const uint8_t green = cJSON_GetObjectItem(root, "green")->valueint;
+        const uint8_t blue = cJSON_GetObjectItem(root, "blue")->valueint;
+        cJSON_Delete(root);
+
+        const auto totem = static_cast<Totem*>(req->user_ctx);
+        totem->setRgbMode(red, green, blue);
+
+        httpd_resp_sendstr(req, "RGB changed successfully");
+        return ESP_OK;
     }
 
     void provisionGifEndpoint() const
@@ -83,34 +84,38 @@ class RestServer
             .method = HTTP_POST,
             .handler = [](httpd_req_t* req) -> esp_err_t
             {
-                auto body_or_error = readRequestBody(req);
-                if (!body_or_error) return body_or_error.error();
-
-                std::string body = std::move(body_or_error.value());
-                const auto size = body.size();
-
-                if (size < LedMatrix::MATRIX_BUFFER_SIZE)
-                {
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GIF buffer must be greater than 16384");
-                    return ESP_FAIL;
-                }
-
-                if (size % LedMatrix::MATRIX_BUFFER_SIZE != 0)
-                {
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GIF buffer must be divisible by 16384");
-                    return ESP_FAIL;
-                }
-
                 const auto totem = static_cast<Totem*>(req->user_ctx);
-                totem->setGifMode(std::move(body), size);
-
-                httpd_resp_sendstr(req, "RGB changed successfully");
+                return totem->handleGifRequest(req);
                 return ESP_OK;
             },
             .user_ctx = &_totem,
         };
         httpd_register_uri_handler(_server_handle, &system_info_get_uri);
     }
+
+    // auto body_or_error = readRequestBody(req);
+    // if (!body_or_error) return body_or_error.error();
+    //
+    // std::string body = std::move(body_or_error.value());
+    // const auto size = body.size();
+    //
+    // if (size < LedMatrix::MATRIX_BUFFER_SIZE)
+    // {
+    //     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GIF buffer must be greater than 16384");
+    //     return ESP_FAIL;
+    // }
+    //
+    // if (size % LedMatrix::MATRIX_BUFFER_SIZE != 0)
+    // {
+    //     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GIF buffer must be divisible by 16384");
+    //     return ESP_FAIL;
+    // }
+    //
+    // const auto totem = static_cast<Totem*>(req->user_ctx);
+    // totem->handleGifRequest(std::move(body), size);
+    //
+    // httpd_resp_sendstr(req, "RGB changed successfully");
+    // return ESP_OK;
 
     void provisionMatrixSettingsEndpoint() const
     {
