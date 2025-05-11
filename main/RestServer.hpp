@@ -21,6 +21,10 @@ class RestServer
     {
     }
 
+    ~RestServer()
+    {
+    }
+
     void provisionSystemInfoEndpoint() const
     {
         constexpr httpd_uri_t system_info_get_uri = {
@@ -134,6 +138,41 @@ class RestServer
         httpd_register_uri_handler(_server_handle, &system_info_get_uri);
     }
 
+    static std::expected<std::string, esp_err_t> readRequestBody(httpd_req_t* req)
+    {
+        const auto free_mem = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+        ESP_LOGI(TAG, "Received content with length=%d, heap available=%d", req->content_len, free_mem);
+
+        if (req->content_len == 0)
+        {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content was empty");
+            return std::unexpected(ESP_FAIL);
+        }
+
+        if (req->content_len > free_mem)
+        {
+            httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "Content too big");
+            return std::unexpected(ESP_FAIL);
+        }
+
+        std::string buffer;
+        buffer.resize(req->content_len);
+
+        int total_received = 0;
+        while (total_received < req->content_len)
+        {
+            const auto received = httpd_req_recv(req, &buffer[total_received], req->content_len - total_received);
+            if (received <= 0)
+            {
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive content");
+                return std::unexpected(ESP_FAIL);
+            }
+            total_received += received;
+        }
+
+        return buffer;
+    }
+
 public:
     static void Start(Totem& totem)
     {
@@ -154,41 +193,5 @@ public:
         server.provisionMatrixSettingsEndpoint();
 
         ESP_LOGI(TAG, "Server running");
-    }
-
-private:
-    static std::expected<std::string, esp_err_t> readRequestBody(httpd_req_t* req)
-    {
-        auto f = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
-        ESP_LOGI(TAG, "Received content with length=%d, heap available=%d", req->content_len, f);
-
-        if (req->content_len == 0)
-        {
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content was empty");
-            return std::unexpected(ESP_FAIL);
-        }
-
-        if (req->content_len > f)
-        {
-            httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "GIF too big");
-            return std::unexpected(ESP_FAIL);
-        }
-
-        std::string buffer;
-        buffer.resize(req->content_len);
-
-        int total_received = 0;
-        while (total_received < req->content_len)
-        {
-            const auto received = httpd_req_recv(req, &buffer[total_received], req->content_len - total_received);
-            if (received <= 0)
-            {
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive data");
-                return std::unexpected(ESP_FAIL);
-            }
-            total_received += received;
-        }
-
-        return buffer;
     }
 };

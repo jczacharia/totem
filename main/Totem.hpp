@@ -4,6 +4,7 @@
 #include <esp_pthread.h>
 
 #include "LedMatrix.hpp"
+#include "Microphone.hpp"
 
 class Totem
 {
@@ -17,7 +18,6 @@ class Totem
 
     State _state = State::RGB;
 
-    const LedMatrix& _led_matrix;
     SemaphoreHandle_t _mutex = nullptr;
 
     std::string _gif_data;
@@ -30,8 +30,8 @@ class Totem
     uint16_t _gif_frame_idx = 0;
     uint16_t _gif_total_frames = 0;
 
-    static constexpr uint16_t MIN_GIF_SPEED = 10;
-    std::atomic<uint16_t> _gif_speed{50};
+    static constexpr uint16_t MIN_GIF_SPEED = 50;
+    std::atomic<uint16_t> _gif_speed{MIN_GIF_SPEED};
 
     std::atomic<uint8_t> _brightness{255};
 
@@ -47,8 +47,6 @@ class Totem
         cfg.stack_size = 4096;
         cfg.prio = configMAX_PRIORITIES;
         esp_pthread_set_cfg(&cfg);
-
-        ESP_LOGI(TAG, "Starting update thread");
         const auto sleep_time = std::chrono::milliseconds(MIN_GIF_SPEED);
         _update_thread = std::thread([this, sleep_time]
         {
@@ -62,7 +60,7 @@ class Totem
                         if (_buffer != nullptr)
                         {
                             const auto buf = reinterpret_cast<uint32_t*>(_buffer);
-                            _led_matrix.loadFromBuffer(buf + _gif_frame_idx * LedMatrix::MATRIX_SIZE);
+                            LedMatrix::getInstance().loadFromBuffer(buf + _gif_frame_idx * LedMatrix::MATRIX_SIZE);
                         }
                         else
                         {
@@ -72,7 +70,7 @@ class Totem
 
                     case State::RGB:
                     default:
-                        _led_matrix.fillRgb(_red, _green, _blue);
+                        LedMatrix::getInstance().fillRgb(_red, _green, _blue);
                         break;
                     }
 
@@ -82,7 +80,6 @@ class Totem
                 std::this_thread::sleep_for(sleep_time);
             }
         });
-
         _update_thread.detach();
     }
 
@@ -98,8 +95,6 @@ class Totem
         cfg.stack_size = 1024;
         cfg.prio = configMAX_PRIORITIES - 1;
         esp_pthread_set_cfg(&cfg);
-
-        ESP_LOGI(TAG, "Starting gif frame thread");
         _gif_frame_thread = std::thread([this]
         {
             while (_gif_frame_thread_running)
@@ -117,7 +112,6 @@ class Totem
                 std::this_thread::sleep_for(std::chrono::milliseconds(speed));
             }
         });
-
         _gif_frame_thread.detach();
     }
 
@@ -133,8 +127,6 @@ class Totem
         cfg.stack_size = 1024;
         cfg.prio = configMAX_PRIORITIES - 2;
         esp_pthread_set_cfg(&cfg);
-
-        ESP_LOGI(TAG, "Starting brightness thread");
         const auto sleep_time = std::chrono::milliseconds(1000);
         _brightness_thread = std::thread([this, sleep_time]
         {
@@ -142,19 +134,19 @@ class Totem
             {
                 if (xSemaphoreTake(_mutex, portMAX_DELAY) == pdTRUE)
                 {
-                    _led_matrix.setBrightness(_brightness);
+                    LedMatrix::getInstance().setBrightness(_brightness);
                     xSemaphoreGive(_mutex);
                 }
 
                 std::this_thread::sleep_for(sleep_time);
             }
         });
-
         _brightness_thread.detach();
     }
 
 public:
-    explicit Totem(const LedMatrix& l) : _led_matrix(l)
+    // explicit Totem(const LedMatrix& l, const Microphone& m) : _led_matrix(l), _microphone(m)
+    Totem()
     {
         if ((_mutex = xSemaphoreCreateMutex()) == nullptr)
         {
