@@ -36,28 +36,25 @@ private:
     static constexpr uint8_t MATRIX_PIXELS_PER_ROW = MATRIX_WIDTH;
     static constexpr uint8_t MATRIX_COLOR_DEPTH = 8;
 
-    struct Pin
-    {
-        static constexpr uint32_t R1 = 27;
-        static constexpr uint32_t G1 = 26;
-        static constexpr uint32_t B1 = 21;
-        static constexpr uint32_t R2 = 12;
-        static constexpr uint32_t G2 = 25;
-        static constexpr uint32_t B2 = 19;
-        static constexpr uint32_t A = 22;
-        static constexpr uint32_t B = 18;
-        static constexpr uint32_t C = 33;
-        static constexpr uint32_t D = 13;
-        static constexpr uint32_t E = 5;
-        static constexpr uint32_t LAT = 2;
-        static constexpr uint32_t OE = 4;
-        static constexpr uint32_t CLK = 0;
-    };
+    static constexpr uint32_t PIN_R1 = 27;
+    static constexpr uint32_t PIN_G1 = 26;
+    static constexpr uint32_t PIN_B1 = 21;
+    static constexpr uint32_t PIN_R2 = 12;
+    static constexpr uint32_t PIN_G2 = 25;
+    static constexpr uint32_t PIN_B2 = 19;
+    static constexpr uint32_t PIN_A = 22;
+    static constexpr uint32_t PIN_B = 18;
+    static constexpr uint32_t PIN_C = 33;
+    static constexpr uint32_t PIN_D = 13;
+    static constexpr uint32_t PIN_E = 5;
+    static constexpr uint32_t PIN_LAT = 2;
+    static constexpr uint32_t PIN_OE = 4;
+    static constexpr uint32_t PIN_CLK = 0;
 
     static constexpr std::array<uint32_t, 13> pinsArr = {
-        Pin::R1, Pin::G1, Pin::B1, Pin::R2, Pin::G2,
-        Pin::B2, Pin::LAT, Pin::OE, Pin::A, Pin::B,
-        Pin::C, Pin::D, Pin::E
+        PIN_R1, PIN_G1, PIN_B1, PIN_R2, PIN_G2,
+        PIN_B2, PIN_LAT, PIN_OE, PIN_A, PIN_B,
+        PIN_C, PIN_D, PIN_E
     };
 
     static constexpr uint16_t BIT_R1 = 1 << 0;
@@ -66,13 +63,13 @@ private:
     static constexpr uint16_t BIT_R2 = 1 << 3;
     static constexpr uint16_t BIT_G2 = 1 << 4;
     static constexpr uint16_t BIT_B2 = 1 << 5;
-    static constexpr uint16_t BIT_LAT = 1 << 6;
-    static constexpr uint16_t BIT_OE = 1 << 7;
     static constexpr uint16_t BIT_A = 1 << 8;
     static constexpr uint16_t BIT_B = 1 << 9;
     static constexpr uint16_t BIT_C = 1 << 10;
     static constexpr uint16_t BIT_D = 1 << 11;
     static constexpr uint16_t BIT_E = 1 << 12;
+    static constexpr uint16_t BIT_LAT = 1 << 6;
+    static constexpr uint16_t BIT_OE = 1 << 7;
     static constexpr uint16_t BIT_CLK = 1 << 13;
 
     static constexpr uint16_t BITMASK_RGB1_RBG2 = BIT_R1 | BIT_G1 | BIT_B1 | BIT_R2 | BIT_G2 | BIT_B2;
@@ -135,9 +132,9 @@ private:
             esp_rom_gpio_connect_out_signal(pinsArr[i], iomux_signal_base + i, false, false);
         }
 
-        gpioInit(Pin::CLK);
+        gpioInit(PIN_CLK);
         constexpr int iomux_clock = I2S_NUM == 0 ? I2S0O_WS_OUT_IDX : I2S1O_WS_OUT_IDX;
-        esp_rom_gpio_connect_out_signal(Pin::CLK, iomux_clock, false, false);
+        esp_rom_gpio_connect_out_signal(PIN_CLK, iomux_clock, false, false);
 
         if ((dma_desc = static_cast<lldesc_t*>(heap_caps_malloc(
             sizeof(lldesc_t) * MATRIX_ROWS_PER_FRAME * MATRIX_COLOR_DEPTH, MALLOC_CAP_DMA))) == nullptr)
@@ -214,8 +211,6 @@ private:
         dev->sample_rate_conf.rx_bck_div_num = 2;
         dev->sample_rate_conf.tx_bck_div_num = 2;
 
-        ////////////////////////////// END CLOCK CONFIGURATION /////////////////////////////////
-
         // I2S conf2 reg
         dev->conf2.val = 0;
         dev->conf2.lcd_en = 1;
@@ -231,8 +226,8 @@ private:
         // I2S conf reg
         dev->conf.val = 0;
 
-        // Mode 1, single 16-bit channel, load 16 bit sample(*) into fifo and pad to 32 bit with zeros
-        // *Actually a 32 bit read where two samples are read at once. Length of fifo must thus still be
+        // Mode 1, a single 16-bit channel, load 16 bit sample(*) into fifo and pad to 32 bit with zeros
+        // *Actually a 32-bit read where two samples are read at once. Length of fifo must thus still be
         // word-aligned
         dev->fifo_conf.tx_fifo_mod = 1;
 
@@ -322,14 +317,14 @@ public:
                 constexpr char bitshift = (_depth - 2 - 1) >> 1;
 
                 const char rightshift = std::max(bitplane - bitshift - 2, 0);
-                // calculate the OE disable period by brightness, and also blanking
+                // calculate the OE disable period by brightness and also blanking
                 int brightness_in_x_pixels = ((_width - _blank) * brightness) >> (7 + rightshift);
                 brightness_in_x_pixels = (brightness_in_x_pixels >> 1) | (brightness_in_x_pixels & 1);
 
-                // switch pointer to a row for a specific color index
+                // switch a pointer to a row for a specific color index
                 const auto row = dmaDescAt(row_idx * MATRIX_COLOR_DEPTH + color_idx);
 
-                // define range of Output Enable on the center of the row
+                // define the range of Output Enable in the center of the row
                 const int x_coord_max = (_width + brightness_in_x_pixels + 1) >> 1;
                 const int x_coord_min = (_width - brightness_in_x_pixels + 0) >> 1;
                 int x_coord = _width;
@@ -337,7 +332,7 @@ public:
                 {
                     --x_coord;
 
-                    // (the check is already including "blanking" )
+                    // (the check is already including "blanking")
                     if (x_coord >= x_coord_min && x_coord < x_coord_max)
                     {
                         row[xCoord(x_coord)] &= ~BIT_OE;
@@ -354,11 +349,10 @@ public:
         while (row_idx);
     }
 
-    void loadFromBuffer(const uint32_t* buffer) const
+    void loadFromBuffer(const volatile uint32_t* buffer) const
     {
         if (buffer == nullptr)
         {
-            ESP_LOGE(TAG, "buffer is nullptr!");
             return;
         }
 
@@ -399,12 +393,12 @@ public:
                 {
                     dma_row_buffer[xCoord(c)] &= ~BITMASK_RGB1_RBG2;
 
-                    // Set R1, G1, B1 for top half of the matrix
+                    // Set R1, G1, B1 for the top half of the matrix
                     dma_row_buffer[xCoord(c)] |= lumConvTab[r_val] & mask ? BIT_R1 : 0;
                     dma_row_buffer[xCoord(c)] |= lumConvTab[g_val] & mask ? BIT_G1 : 0;
                     dma_row_buffer[xCoord(c)] |= lumConvTab[b_val] & mask ? BIT_B1 : 0;
 
-                    // Set R2, G2, B2 for bottom half of the matrix
+                    // Set R2, G2, B2 for the bottom half of the matrix
                     dma_row_buffer[xCoord(c)] |= lumConvTab[r_val] & mask ? BIT_R2 : 0;
                     dma_row_buffer[xCoord(c)] |= lumConvTab[g_val] & mask ? BIT_G2 : 0;
                     dma_row_buffer[xCoord(c)] |= lumConvTab[b_val] & mask ? BIT_B2 : 0;

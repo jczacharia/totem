@@ -17,7 +17,7 @@
 #define MDNS_HOST_NAME "esp-home"
 #define MDNS_INSTANCE "totem server"
 
-static void init()
+static void start_wifi()
 {
     const size_t mem_cnt = esp_himem_get_phys_size();
     const size_t mem_free = esp_himem_get_free_size();
@@ -54,10 +54,10 @@ static void init()
 
 extern "C" void app_main(void)
 {
-    init();
     LedMatrix::getInstance();
     Microphone::getInstance();
     Totem totem;
+    start_wifi();
     RestServer::Start(totem);
     std::this_thread::sleep_for(std::chrono::years::max());
 }

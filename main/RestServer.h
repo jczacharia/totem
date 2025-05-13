@@ -167,12 +167,19 @@ class RestServer
         while (total_received < req->content_len)
         {
             const auto received = httpd_req_recv(req, &buffer[total_received], req->content_len - total_received);
+
+            if (received == HTTPD_SOCK_ERR_TIMEOUT)
+            {
+                continue; // Retry if timeout occurred
+            }
+
             if (received <= 0)
             {
                 httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive content");
                 return std::unexpected(ESP_FAIL);
             }
             total_received += received;
+            ESP_LOGI(TAG, "Data received=%d, total=%d", received, total_received);
         }
 
         return buffer;
