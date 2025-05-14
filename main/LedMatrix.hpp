@@ -14,12 +14,12 @@
 #include "hal/i2s_hal.h"
 #include "hal/i2s_ll.h"
 #include "hal/i2s_types.h"
-#include "lib/Singleton.hpp"
-#include "lib/Util.hpp"
+#include "util/Singleton.hpp"
+#include "util/util.hpp"
 #include "rom/lldesc.h"
 #include "soc/gpio_sig_map.h"
 
-class LedMatrix final : public Singleton<LedMatrix>
+class LedMatrix final : public util::Singleton<LedMatrix>
 {
 public:
     static constexpr uint8_t MATRIX_WIDTH = 64;
@@ -29,9 +29,8 @@ public:
 
 private:
     static constexpr auto TAG = "LedMatrix";
-    friend class Singleton<LedMatrix>;
+    friend class util::Singleton<LedMatrix>;
 
-    static constexpr uint8_t I2S_NUM = 0;
     static constexpr uint8_t MATRIX_ROWS_PER_FRAME = MATRIX_HEIGHT / 2;
     static constexpr uint8_t MATRIX_PIXELS_PER_ROW = MATRIX_WIDTH;
     static constexpr uint8_t MATRIX_COLOR_DEPTH = 8;
@@ -72,11 +71,13 @@ private:
     static constexpr uint16_t BIT_OE = 1 << 7;
     static constexpr uint16_t BIT_CLK = 1 << 13;
 
-    static constexpr uint16_t BITMASK_RGB1_RBG2 = BIT_R1 | BIT_G1 | BIT_B1 | BIT_R2 | BIT_G2 | BIT_B2;
+    static constexpr uint16_t BITMASK_RGB1 = BIT_R1 | BIT_G1 | BIT_B1;
+    static constexpr uint16_t BITMASK_RGB2 = BIT_R2 | BIT_G2 | BIT_B2;
+    static constexpr uint16_t BITMASK_RGB1_RBG2 = BITMASK_RGB1 | BITMASK_RGB2;
     static constexpr uint16_t BITMASK_ABCDE = BIT_A | BIT_B | BIT_C | BIT_D | BIT_E;
     static constexpr int BITS_ABCDE_OFFSET = 8;
 
-    static constexpr uint16_t DRAM_ATTR lumConvTab[] = {
+    static constexpr uint16_t DRAM_ATTR lumTbl[] = {
         0, 27, 56, 84, 113, 141, 170, 198, 227, 255, 284, 312, 340, 369,
         397, 426, 454, 483, 511, 540, 568, 597, 626, 657, 688, 720, 754, 788,
         824, 860, 898, 936, 976, 1017, 1059, 1102, 1146, 1191, 1238, 1286, 1335, 1385,
@@ -98,7 +99,24 @@ private:
         63561, 64215, 64873, 65535
     };
 
-    static constexpr auto GAMMA_TABLE = Util::createGammaTable<256>();
+    static constexpr uint8_t DRAM_ATTR gammaTbl[] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
+        1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4,
+        4, 4, 5, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9,
+        9, 9, 10, 10, 11, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16,
+        16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 23, 23, 24, 24,
+        25, 26, 26, 27, 28, 28, 29, 30, 30, 31, 32, 32, 33, 34, 35, 35,
+        36, 37, 38, 38, 39, 40, 41, 42, 42, 43, 44, 45, 46, 47, 47, 48,
+        49, 50, 51, 52, 53, 54, 55, 56, 56, 57, 58, 59, 60, 61, 62, 63,
+        64, 65, 66, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77, 78, 79, 80,
+        81, 82, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 97, 98, 99,
+        100, 102, 103, 104, 105, 107, 108, 109, 111, 112, 113, 115, 116, 117, 119, 120,
+        121, 123, 124, 126, 127, 128, 130, 131, 133, 134, 136, 137, 139, 140, 142, 143,
+        145, 146, 148, 149, 151, 152, 154, 155, 157, 158, 160, 162, 163, 165, 166, 168,
+        170, 171, 173, 175, 176, 178, 180, 181, 183, 185, 186, 188, 190, 192, 193, 195,
+        197, 199, 200, 202, 204, 206, 207, 209, 211, 213, 215, 217, 218, 220, 222, 224,
+        226, 228, 230, 232, 233, 235, 237, 239, 241, 243, 245, 247, 249, 251, 253, 255,
+    };
 
     lldesc_t* dma_desc = nullptr;
 
@@ -121,26 +139,28 @@ private:
 
     LedMatrix()
     {
-        constexpr periph_module_t i2s_mod = I2S_NUM == 0 ? PERIPH_I2S0_MODULE : PERIPH_I2S1_MODULE;
+        ESP_LOGI(TAG, "Initializing...");
+
+        constexpr periph_module_t i2s_mod = PERIPH_I2S0_MODULE;
         periph_module_reset(i2s_mod);
         periph_module_enable(i2s_mod);
 
-        constexpr int iomux_signal_base = I2S_NUM == 0 ? I2S0O_DATA_OUT8_IDX : I2S1O_DATA_OUT8_IDX;
         for (size_t i = 0; i < pinsArr.size(); i++)
         {
+            constexpr int iomux_signal_base = I2S0O_DATA_OUT8_IDX;
             gpioInit(pinsArr[i]);
             esp_rom_gpio_connect_out_signal(pinsArr[i], iomux_signal_base + i, false, false);
         }
 
         gpioInit(PIN_CLK);
-        constexpr int iomux_clock = I2S_NUM == 0 ? I2S0O_WS_OUT_IDX : I2S1O_WS_OUT_IDX;
+        constexpr int iomux_clock = I2S0O_WS_OUT_IDX;
         esp_rom_gpio_connect_out_signal(PIN_CLK, iomux_clock, false, false);
 
         if ((dma_desc = static_cast<lldesc_t*>(heap_caps_malloc(
             sizeof(lldesc_t) * MATRIX_ROWS_PER_FRAME * MATRIX_COLOR_DEPTH, MALLOC_CAP_DMA))) == nullptr)
         {
             ESP_LOGE(TAG, "Failed to allocate memory for DMA descriptors");
-            return;
+            abort();
         }
 
         for (size_t r = 0; r < MATRIX_ROWS_PER_FRAME; r++)
@@ -156,7 +176,7 @@ private:
                 if (row_buf == nullptr)
                 {
                     ESP_LOGE(TAG, "Failed to allocate memory for row buffer");
-                    return;
+                    abort();
                 }
 
                 for (size_t p = 0; p < MATRIX_PIXELS_PER_ROW; p++)
@@ -189,9 +209,7 @@ private:
             }
         }
 
-        setBrightness(255);
-
-        i2s_dev_t* dev = I2S_NUM == 0 ? &I2S0 : &I2S1;
+        i2s_dev_t* dev = &I2S0;
 
         dev->clkm_conf.clka_en = 1; // Use the 80mhz system clock (PLL_D2_CLK) when '0'
         dev->clkm_conf.clkm_div_a = 1; // Clock denominator
@@ -282,16 +300,15 @@ private:
         dev->out_link.start = 1;
 
         dev->conf.tx_start = 1;
+
+        ESP_LOGI(TAG, "Running...");
     }
 
     ~LedMatrix() override
     {
-        if (dma_desc)
-        {
-            ESP_LOGI(TAG, "Freeing DMA descriptors");
-            heap_caps_free(dma_desc);
-            dma_desc = nullptr;
-        }
+        ESP_LOGI(TAG, "Destroying...");
+        if (dma_desc) heap_caps_free(dma_desc);
+        ESP_LOGI(TAG, "Destroyed");
     }
 
 public:
@@ -368,19 +385,20 @@ public:
                     const uint32_t bot_pixel = buffer[(r + MATRIX_ROWS_PER_FRAME) * MATRIX_PIXELS_PER_ROW + c];
                     const uint16_t mask = 1 << (d + MATRIX_COLOR_DEPTH);
 
-                    dma_row_buffer[xCoord(c)] &= ~BITMASK_RGB1_RBG2;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[GAMMA_TABLE[top_pixel >> 16 & 0xFF]] & mask ? BIT_R1 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[GAMMA_TABLE[top_pixel >> 8 & 0xFF]] & mask ? BIT_G1 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[GAMMA_TABLE[top_pixel & 0xFF]] & mask ? BIT_B1 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[GAMMA_TABLE[bot_pixel >> 16 & 0xFF]] & mask ? BIT_R2 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[GAMMA_TABLE[bot_pixel >> 8 & 0xFF]] & mask ? BIT_G2 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[GAMMA_TABLE[bot_pixel & 0xFF]] & mask ? BIT_B2 : 0;
+                    const int xc = xCoord(c);
+                    dma_row_buffer[xc] &= ~BITMASK_RGB1_RBG2;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel >> 16 & 0xFF]] & mask ? BIT_R1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel >> 8 & 0xFF]] & mask ? BIT_G1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel & 0xFF]] & mask ? BIT_B1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel >> 16 & 0xFF]] & mask ? BIT_R2 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel >> 8 & 0xFF]] & mask ? BIT_G2 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel & 0xFF]] & mask ? BIT_B2 : 0;
                 }
             }
         }
     }
 
-    void fillRgb(const uint8_t r_val, const uint8_t g_val, const uint8_t b_val) const
+    void fillRgb(const uint8_t red, const uint8_t green, const uint8_t blue) const
     {
         for (int r = 0; r < MATRIX_ROWS_PER_FRAME; r++)
         {
@@ -391,17 +409,19 @@ public:
 
                 for (int c = 0; c < MATRIX_PIXELS_PER_ROW; c++)
                 {
-                    dma_row_buffer[xCoord(c)] &= ~BITMASK_RGB1_RBG2;
+                    const int xc = xCoord(c);
+
+                    dma_row_buffer[xc] &= ~BITMASK_RGB1_RBG2;
 
                     // Set R1, G1, B1 for the top half of the matrix
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[r_val] & mask ? BIT_R1 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[g_val] & mask ? BIT_G1 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[b_val] & mask ? BIT_B1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[red] & mask ? BIT_R1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[green] & mask ? BIT_G1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[blue] & mask ? BIT_B1 : 0;
 
                     // Set R2, G2, B2 for the bottom half of the matrix
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[r_val] & mask ? BIT_R2 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[g_val] & mask ? BIT_G2 : 0;
-                    dma_row_buffer[xCoord(c)] |= lumConvTab[b_val] & mask ? BIT_B2 : 0;
+                    dma_row_buffer[xc] |= lumTbl[red] & mask ? BIT_R2 : 0;
+                    dma_row_buffer[xc] |= lumTbl[green] & mask ? BIT_G2 : 0;
+                    dma_row_buffer[xc] |= lumTbl[blue] & mask ? BIT_B2 : 0;
                 }
             }
         }
@@ -420,5 +440,85 @@ public:
                 }
             }
         }
+    }
+
+    void drawPixel(const uint8_t x, const uint8_t y, const uint8_t r, const uint8_t g, const uint8_t b) const
+    {
+        if (x >= MATRIX_WIDTH || y >= MATRIX_HEIGHT)
+        {
+            return;
+        }
+
+        const bool isTopHalf = y < MATRIX_ROWS_PER_FRAME;
+        const int row = isTopHalf ? y : y - MATRIX_ROWS_PER_FRAME;
+
+        for (int d = 0; d < MATRIX_COLOR_DEPTH; d++)
+        {
+            const auto dma_row_buffer = dmaDescAt(row * MATRIX_COLOR_DEPTH + d);
+            const uint16_t mask = 1 << (d + MATRIX_COLOR_DEPTH);
+
+            const int xc = xCoord(x);
+
+            if (isTopHalf)
+            {
+                dma_row_buffer[xc] &= ~BITMASK_RGB1;
+                dma_row_buffer[xc] |= lumTbl[r] & mask ? BIT_R1 : 0;
+                dma_row_buffer[xc] |= lumTbl[g] & mask ? BIT_G1 : 0;
+                dma_row_buffer[xc] |= lumTbl[b] & mask ? BIT_B1 : 0;
+            }
+            else
+            {
+                dma_row_buffer[xc] &= ~BITMASK_RGB2;
+                dma_row_buffer[xc] |= lumTbl[r] & mask ? BIT_R2 : 0;
+                dma_row_buffer[xc] |= lumTbl[g] & mask ? BIT_G2 : 0;
+                dma_row_buffer[xc] |= lumTbl[b] & mask ? BIT_B2 : 0;
+            }
+        }
+    }
+
+    void getPixel(const uint8_t x, const uint8_t y, uint8_t& r, uint8_t& g, uint8_t& b) const
+    {
+        // Initialize output values to zero (black) in case pixel is out of bounds
+        r = g = b = 0;
+
+        // Check if coordinates are within matrix bounds
+        if (x >= MATRIX_WIDTH || y >= MATRIX_HEIGHT)
+        {
+            return;
+        }
+
+        // Determine if this pixel is in the top or bottom half of the matrix
+        const bool isTopHalf = y < MATRIX_ROWS_PER_FRAME;
+        const int row = isTopHalf ? y : y - MATRIX_ROWS_PER_FRAME;
+        const int xc = xCoord(x);
+
+        // We'll use bit contribution from each color depth plane to reconstruct the color intensity
+        uint16_t rValue = 0;
+        uint16_t gValue = 0;
+        uint16_t bValue = 0;
+
+        const uint16_t rBit = isTopHalf ? BIT_R1 : BIT_R2;
+        const uint16_t gBit = isTopHalf ? BIT_G1 : BIT_G2;
+        const uint16_t bBit = isTopHalf ? BIT_B1 : BIT_B2;
+
+        // Check each bit plane and accumulate the color intensity
+        for (int d = 0; d < MATRIX_COLOR_DEPTH; d++)
+        {
+            const auto dma_buffer = dmaDescAt(row * MATRIX_COLOR_DEPTH + d);
+            // Each bit plane contributes a power of 2 to the final color intensity
+            const uint16_t bit_value = 1 << d;
+
+            if (dma_buffer[xc] & rBit) rValue |= bit_value;
+            if (dma_buffer[xc] & gBit) gValue |= bit_value;
+            if (dma_buffer[xc] & bBit) bValue |= bit_value;
+        }
+
+        // Scale the 8-bit values to the 0-255 range
+        // Assuming MATRIX_COLOR_DEPTH is 8, this gives a full 8-bit color range
+        constexpr float scale = 255.0f / ((1 << MATRIX_COLOR_DEPTH) - 1);
+
+        r = static_cast<uint8_t>(rValue * scale);
+        g = static_cast<uint8_t>(gValue * scale);
+        b = static_cast<uint8_t>(bValue * scale);
     }
 };

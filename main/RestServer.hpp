@@ -2,47 +2,32 @@
 
 #include <expected>
 
-#include "cJSON.h"
 #include "esp_vfs.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_chip_info.h"
-#include "Totem.hpp"
+#include "totem/Totem.hpp"
+
+#include "endpoints/SystemInfoEndpoint.hpp"
+#include "endpoints/LedMatrixRgbEndpoint.hpp"
+#include "endpoints/LedMatrixSettingsEndpoint.hpp"
+#include "endpoints/LedMatrixGifEndpoint.hpp"
 
 class RestServer
 {
     static constexpr auto TAG = "RestServer";
 
-    Totem& _totem;
     httpd_handle_t _server_handle = nullptr;
 
-    explicit RestServer(Totem& totem): _totem(totem)
-    {
-    }
-
-    ~RestServer()
-    {
-    }
+    RestServer() = default;
+    ~RestServer() = default;
 
     void provisionSystemInfoEndpoint() const
     {
         constexpr httpd_uri_t system_info_get_uri = {
             .uri = "/api/v1/system/info",
             .method = HTTP_GET,
-            .handler = [](httpd_req_t* req) -> esp_err_t
-            {
-                httpd_resp_set_type(req, "application/json");
-                cJSON* root = cJSON_CreateObject();
-                esp_chip_info_t chip_info;
-                esp_chip_info(&chip_info);
-                cJSON_AddStringToObject(root, "version", IDF_VER);
-                cJSON_AddNumberToObject(root, "cores", chip_info.cores);
-                char* sys_info = cJSON_Print(root);
-                httpd_resp_sendstr(req, sys_info);
-                free(sys_info);
-                cJSON_Delete(root);
-                return ESP_OK;
-            },
+            .handler = endpoints::systemInfo,
             .user_ctx = nullptr,
         };
         httpd_register_uri_handler(_server_handle, &system_info_get_uri);
@@ -50,153 +35,50 @@ class RestServer
 
     void provisionRgbEndpoint() const
     {
-        const httpd_uri_t system_info_get_uri = {
+        constexpr httpd_uri_t system_info_get_uri = {
             .uri = "/api/v1/matrix/rgb",
             .method = HTTP_POST,
-            .handler = rgbEndpoint,
-            .user_ctx = &_totem,
+            .handler = endpoints::ledMatrixRgb,
+            .user_ctx = nullptr,
         };
         httpd_register_uri_handler(_server_handle, &system_info_get_uri);
-    }
-
-    static esp_err_t rgbEndpoint(httpd_req_t* req)
-    {
-        auto body_or_error = readRequestBody(req);
-        if (!body_or_error) return body_or_error.error();
-
-        cJSON* root = cJSON_Parse(body_or_error.value().c_str());
-        const uint8_t red = cJSON_GetObjectItem(root, "red")->valueint;
-        const uint8_t green = cJSON_GetObjectItem(root, "green")->valueint;
-        const uint8_t blue = cJSON_GetObjectItem(root, "blue")->valueint;
-        cJSON_Delete(root);
-
-        const auto totem = static_cast<Totem*>(req->user_ctx);
-        totem->setRgbMode(red, green, blue);
-
-        httpd_resp_sendstr(req, "RGB changed successfully");
-        return ESP_OK;
     }
 
     void provisionGifEndpoint() const
     {
-        const httpd_uri_t system_info_get_uri = {
+        constexpr httpd_uri_t system_info_get_uri = {
             .uri = "/api/v1/matrix/gif",
             .method = HTTP_POST,
-            .handler = [](httpd_req_t* req) -> esp_err_t
-            {
-                const auto totem = static_cast<Totem*>(req->user_ctx);
-                return totem->handleGifRequest(req);
-                return ESP_OK;
-            },
-            .user_ctx = &_totem,
+            .handler = endpoints::ledMatrixGif,
+            .user_ctx = nullptr,
         };
         httpd_register_uri_handler(_server_handle, &system_info_get_uri);
     }
-
-    // auto body_or_error = readRequestBody(req);
-    // if (!body_or_error) return body_or_error.error();
-    //
-    // std::string body = std::move(body_or_error.value());
-    // const auto size = body.size();
-    //
-    // if (size < LedMatrix::MATRIX_BUFFER_SIZE)
-    // {
-    //     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GIF buffer must be greater than 16384");
-    //     return ESP_FAIL;
-    // }
-    //
-    // if (size % LedMatrix::MATRIX_BUFFER_SIZE != 0)
-    // {
-    //     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GIF buffer must be divisible by 16384");
-    //     return ESP_FAIL;
-    // }
-    //
-    // const auto totem = static_cast<Totem*>(req->user_ctx);
-    // totem->handleGifRequest(std::move(body), size);
-    //
-    // httpd_resp_sendstr(req, "RGB changed successfully");
-    // return ESP_OK;
 
     void provisionMatrixSettingsEndpoint() const
     {
-        const httpd_uri_t system_info_get_uri = {
+        constexpr httpd_uri_t system_info_get_uri = {
             .uri = "/api/v1/matrix/settings",
             .method = HTTP_POST,
-            .handler = [](httpd_req_t* req) -> esp_err_t
-            {
-                auto body_or_error = readRequestBody(req);
-                if (!body_or_error) return body_or_error.error();
-
-                cJSON* root = cJSON_Parse(body_or_error.value().c_str());
-                const uint8_t brightness = cJSON_GetObjectItem(root, "brightness")->valueint;
-                const uint16_t speed = cJSON_GetObjectItem(root, "speed")->valueint;
-                cJSON_Delete(root);
-
-                const auto totem = static_cast<Totem*>(req->user_ctx);
-                totem->setSettings(brightness, speed);
-
-                httpd_resp_sendstr(req, "LED Matrix settings updated");
-                return ESP_OK;
-            },
-            .user_ctx = &_totem,
+            .handler = endpoints::ledMatrixSettings,
+            .user_ctx = nullptr,
         };
         httpd_register_uri_handler(_server_handle, &system_info_get_uri);
     }
 
-    static std::expected<std::string, esp_err_t> readRequestBody(httpd_req_t* req)
-    {
-        const auto free_mem = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
-        ESP_LOGI(TAG, "Received content with length=%d, heap available=%d", req->content_len, free_mem);
-
-        if (req->content_len == 0)
-        {
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content was empty");
-            return std::unexpected(ESP_FAIL);
-        }
-
-        if (req->content_len > free_mem)
-        {
-            httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "Content too big");
-            return std::unexpected(ESP_FAIL);
-        }
-
-        std::string buffer;
-        buffer.resize(req->content_len);
-
-        int total_received = 0;
-        while (total_received < req->content_len)
-        {
-            const auto received = httpd_req_recv(req, &buffer[total_received], req->content_len - total_received);
-
-            if (received == HTTPD_SOCK_ERR_TIMEOUT)
-            {
-                continue; // Retry if timeout occurred
-            }
-
-            if (received <= 0)
-            {
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive content");
-                return std::unexpected(ESP_FAIL);
-            }
-            total_received += received;
-            ESP_LOGI(TAG, "Data received=%d, total=%d", received, total_received);
-        }
-
-        return buffer;
-    }
-
 public:
-    static void Start(Totem& totem)
+    static void Start()
     {
-        ESP_LOGI(TAG, "Starting server");
+        ESP_LOGI(TAG, "Starting...");
 
-        RestServer server(totem);
+        RestServer server;
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.uri_match_fn = httpd_uri_match_wildcard;
 
         if (httpd_start(&server._server_handle, &config) != ESP_OK)
         {
             ESP_LOGE(TAG, "Failed to start HTTP server");
+            abort();
         }
 
         server.provisionSystemInfoEndpoint();
@@ -204,6 +86,6 @@ public:
         server.provisionGifEndpoint();
         server.provisionMatrixSettingsEndpoint();
 
-        ESP_LOGI(TAG, "Server running");
+        ESP_LOGI(TAG, "Running...");
     }
 };
