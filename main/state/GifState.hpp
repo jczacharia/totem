@@ -65,7 +65,8 @@ public:
             return ESP_FAIL;
         }
 
-        Totem::setState<GifState>(std::move(body), size);
+        const auto totem = static_cast<Totem*>(req->user_ctx);
+        totem->setState<GifState>(std::move(body), size);
 
         httpd_resp_sendstr(req, "GifState set successfully");
         return ESP_OK;

@@ -179,17 +179,11 @@ public:
 
     void render(MatrixGfx& gfx) override
     {
-        // Clear the display
-        gfx.clear();
-
         // Draw the WiFi symbol with animation
         drawWiFiSymbol(gfx);
 
         // Draw "Connecting" text at the bottom
         gfx.setCursor(3, LedMatrix::MATRIX_HEIGHT - (LedMatrix::MATRIX_HEIGHT / 3));
         gfx.print("Connecting", TEXT_R, TEXT_G, TEXT_B);
-
-        // Update the display
-        gfx.flush();
     }
 };

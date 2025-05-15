@@ -4,26 +4,27 @@
 #include <mutex>
 
 #include "util/ThreadManager.hpp"
-#include "util/Singleton.hpp"
-
 #include "matrix/MatrixGfx.hpp"
-
 #include "TotemState.hpp"
-#include "StateLayer.hpp"
 
-class Totem final : public util::Singleton<Totem>
+class Totem final
 {
     static constexpr auto TAG = "Totem";
-    friend class util::Singleton<Totem>;
 
+    MatrixGfx& gfx_;
     std::mutex state_mutex_;
     std::shared_ptr<TotemState> current_state_;
 
     ThreadManager render_thread_{"totem_render_thread", 1, 8192, configMAX_PRIORITIES};
 
-    Totem()
+public:
+    explicit Totem(MatrixGfx& gfx) : gfx_(gfx)
     {
-        ESP_LOGI(TAG, "Initializing...");
+    }
+
+    esp_err_t start()
+    {
+        ESP_LOGI(TAG, "Starting...");
 
         render_thread_.start([this](const std::atomic<bool>& running)
         {
@@ -34,10 +35,9 @@ class Totem final : public util::Singleton<Totem>
                     std::lock_guard lock(state_mutex_);
                     if (current_state_)
                     {
-                        MatrixGfx& gfx = MatrixGfx::getInstance();
-                        gfx.clear();
-                        current_state_->render(gfx);
-                        gfx.flush();
+                        gfx_.clear();
+                        current_state_->render(gfx_);
+                        gfx_.flush();
                         tick = current_state_->getRenderTick();
                     }
                 }
@@ -45,16 +45,15 @@ class Totem final : public util::Singleton<Totem>
             }
         });
 
-        ESP_LOGI(TAG, "Running...");
+        ESP_LOGI(TAG, "Running");
+        return ESP_OK;
     }
 
-public:
     template <typename TState, typename... TArgs>
-    static void setState(TArgs&&... args)
+    void setState(TArgs&&... args)
     {
-        Totem& instance = getInstance();
-        std::lock_guard lock(instance.state_mutex_);
+        std::lock_guard lock(state_mutex_);
         auto state = std::make_shared<TState>(std::forward<TArgs>(args)...);
-        instance.current_state_ = state;
+        current_state_ = state;
     }
 };

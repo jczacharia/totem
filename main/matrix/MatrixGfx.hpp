@@ -1,6 +1,5 @@
 ﻿#pragma once
 
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -8,8 +7,9 @@
 #include "util/Font.hpp"
 
 #include "LedMatrix.hpp"
+#include "audio/Microphone.hpp"
 
-class MatrixGfx final : public util::Singleton<MatrixGfx>
+class MatrixGfx final
 {
 public:
     static constexpr uint8_t FONT_WIDTH = 5;
@@ -17,10 +17,10 @@ public:
     static constexpr uint8_t FONT_SPACING = 1;
     friend class Totem;
 
-private:
-    friend class util::Singleton<MatrixGfx>;
+    Microphone& microphone;
 
-    LedMatrix led_matrix_;
+private:
+    LedMatrix& led_matrix_;
 
     // Internal frame buffer to store pixel data (0x00RRGGBB)
     std::array<uint32_t, LedMatrix::MATRIX_SIZE> buffer_{};
@@ -61,6 +61,11 @@ private:
     }
 
 public:
+    explicit MatrixGfx(LedMatrix& led_matrix, Microphone& mic)
+        : microphone(mic), led_matrix_(led_matrix)
+    {
+    }
+
     void setBufferFromPtr(const uint32_t* ptr)
     {
         if (ptr != nullptr)

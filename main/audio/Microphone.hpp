@@ -4,14 +4,12 @@
 #include <vector>
 #include <driver/i2s_std.h>
 
-#include "util/Singleton.hpp"
-
 #include "matrix/LedMatrix.hpp"
 
 /**
  * @brief Class for controlling the INMP441 I2S microphone on ESP32
  */
-class Microphone final : public util::Singleton<Microphone>
+class Microphone final
 {
 public:
     static constexpr size_t SAMPLE_RATE = 22050;
@@ -19,7 +17,6 @@ public:
 
 private:
     static constexpr auto TAG = "Microphone";
-    friend class util::Singleton<Microphone>;
 
     std::array<int32_t, BUFFER_SIZE> buffer_{};
 
@@ -30,11 +27,12 @@ private:
         static constexpr gpio_num_t SD = GPIO_NUM_32;
     };
 
-    i2s_chan_handle_t _rx_chan;
+    i2s_chan_handle_t _rx_chan = nullptr;
 
-    Microphone()
+public:
+    esp_err_t start()
     {
-        ESP_LOGI(TAG, "Initializing I2S microphone with STD driver");
+        ESP_LOGI(TAG, "Starting...");
 
         constexpr i2s_chan_config_t chan_cfg = {
             .id = I2S_NUM_1,
@@ -51,7 +49,7 @@ private:
         if (err != ESP_OK)
         {
             ESP_LOGE(TAG, "Failed to create I2S RX channel: %s", esp_err_to_name(err));
-            return;
+            return err;
         }
 
         constexpr i2s_std_config_t std_cfg = {
@@ -76,7 +74,7 @@ private:
         {
             ESP_LOGE(TAG, "Failed to initialize I2S RX channel in STD mode: %s", esp_err_to_name(err));
             i2s_del_channel(_rx_chan);
-            return;
+            return err;
         }
 
         err = i2s_channel_enable(_rx_chan);
@@ -85,23 +83,24 @@ private:
             ESP_LOGE(TAG, "Failed to enable I2S RX channel: %s", esp_err_to_name(err));
             i2s_channel_disable(_rx_chan);
             i2s_del_channel(_rx_chan);
-            return;
+            return err;
         }
 
-        ESP_LOGI(TAG, "I2S RX channel initialized and enabled successfully");
+        ESP_LOGI(TAG, "Running");
+        return err;
     }
 
-    ~Microphone() override
+    ~Microphone()
     {
-        ESP_LOGI(TAG, "Shutting down microphone");
+        ESP_LOGI(TAG, "Destroying...");
         if (_rx_chan)
         {
             i2s_channel_disable(_rx_chan);
             i2s_del_channel(_rx_chan);
         }
+        ESP_LOGI(TAG, "Destroyed");
     }
 
-public:
     template <std::size_t TFreqBins>
     void getSpectrum(std::array<float, TFreqBins>& spectrum)
     {

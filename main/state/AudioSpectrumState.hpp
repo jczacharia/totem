@@ -10,17 +10,20 @@
 class AudioSpectrumState final : public TotemState
 {
     static constexpr auto TAG = "AudioSpectrumState";
-    Microphone& microphone_ = Microphone::getInstance();
 
     static constexpr float DEFAULT_PEAK_HOLD_TIME = 3.0f;
     static constexpr float DEFAULT_BAND_NORM_FACTOR = 0.995f;
     static constexpr float DEFAULT_LOG_SCALE_BASE = 8.0f;
     static constexpr float DEFAULT_ANIMATION_SPEED = 0.001f;
+    static constexpr float DEFAULT_ENERGY_ATTACK_FACTOR = 1.5f;
+    static constexpr float DEFAULT_ENERGY_DECAY_FACTOR = 0.4f;
 
     float PEAK_HOLD_TIME;
     float BAND_NORM_FACTOR;
     float LOG_SCALE_BASE;
     float ANIMATION_SPEED;
+    float ENERGY_ATTACK_FACTOR;
+    float ENERGY_DECAY_FACTOR;
 
     using Spectrum = std::array<float, LedMatrix::MATRIX_WIDTH>;
     Spectrum spectrum_{};
@@ -43,11 +46,15 @@ public:
         const float peak_hold_time = DEFAULT_PEAK_HOLD_TIME,
         const float band_normalization_factor = DEFAULT_BAND_NORM_FACTOR,
         const float log_scale_base = DEFAULT_LOG_SCALE_BASE,
-        const float animation_speed = DEFAULT_ANIMATION_SPEED)
+        const float animation_speed = DEFAULT_ANIMATION_SPEED,
+        const float energy_attack_factor = DEFAULT_ENERGY_ATTACK_FACTOR,
+        const float energy_decay_factor = DEFAULT_ENERGY_DECAY_FACTOR)
         : PEAK_HOLD_TIME(peak_hold_time),
           BAND_NORM_FACTOR(band_normalization_factor),
           LOG_SCALE_BASE(log_scale_base),
-          ANIMATION_SPEED(animation_speed)
+          ANIMATION_SPEED(animation_speed),
+          ENERGY_ATTACK_FACTOR(energy_attack_factor),
+          ENERGY_DECAY_FACTOR(energy_decay_factor)
     {
     }
 
@@ -58,11 +65,14 @@ public:
 
         const auto j = nlohmann::json::parse(body_or_error.value());
 
-        Totem::setState<AudioSpectrumState>(
+        const auto totem = static_cast<Totem*>(req->user_ctx);
+        totem->setState<AudioSpectrumState>(
             j.value("peak_hold_time", DEFAULT_PEAK_HOLD_TIME),
             j.value("band_norm_factor", DEFAULT_BAND_NORM_FACTOR),
             j.value("log_scale_base", DEFAULT_LOG_SCALE_BASE),
-            j.value("anim_speed", DEFAULT_ANIMATION_SPEED));
+            j.value("anim_speed", DEFAULT_ANIMATION_SPEED),
+            j.value("energy_attack_factor", DEFAULT_ENERGY_ATTACK_FACTOR),
+            j.value("energy_decay_factor", DEFAULT_ENERGY_DECAY_FACTOR));
 
         httpd_resp_sendstr(req, "AudioSpectrumState set successfully");
         return ESP_OK;
@@ -147,7 +157,7 @@ public:
     {
         handleAnimPhase();
 
-        microphone_.getSpectrum(spectrum_);
+        gfx.microphone.getSpectrum(spectrum_);
 
         float energy = 0;
 
@@ -172,10 +182,10 @@ public:
         // Apply energy
 
         energy /= LedMatrix::MATRIX_WIDTH;
-        dyn_attack_ = 1.0f + energy;
-        dyn_decay_ = 1.0f - energy * 0.2f;
-        dyn_attack_ = std::min(std::max(dyn_attack_, 0.1f), 0.9f);
-        dyn_decay_ = std::min(std::max(dyn_decay_, 0.7f), 0.98f);
+        dyn_attack_ = 1.0f + energy * ENERGY_ATTACK_FACTOR;
+        dyn_decay_ = 1.0f - energy * ENERGY_DECAY_FACTOR;
+        dyn_attack_ = std::min(std::max(dyn_attack_, 0.2f), 0.95f); // Higher max, higher min
+        dyn_decay_ = std::min(std::max(dyn_decay_, 0.5f), 0.95f); // Lower min for faster decay
 
         // Display
 

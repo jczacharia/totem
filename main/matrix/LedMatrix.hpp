@@ -122,11 +122,25 @@ private:
         return reinterpret_cast<volatile uint16_t*>(const_cast<uint8_t*>(dma_desc_[idx].buf));
     }
 
-    static void gpioInit(uint32_t pin)
+    static esp_err_t gpioInit(uint32_t pin)
     {
         esp_rom_gpio_pad_select_gpio(pin);
-        gpio_set_direction(static_cast<gpio_num_t>(pin), GPIO_MODE_OUTPUT);
-        gpio_set_drive_capability(static_cast<gpio_num_t>(pin), static_cast<gpio_drive_cap_t>(3));
+
+        esp_err_t err = gpio_set_direction(static_cast<gpio_num_t>(pin), GPIO_MODE_OUTPUT);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to set GPIO direction for pin %ld: %s", pin, esp_err_to_name(err));
+            return err;
+        }
+
+        err = gpio_set_drive_capability(static_cast<gpio_num_t>(pin), static_cast<gpio_drive_cap_t>(3));
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to set GPIO drive capability for pin %ld: %s", pin, esp_err_to_name(err));
+            return err;
+        }
+
+        return err;
     }
 
     [[nodiscard]] static int xCoord(const int x_coord) noexcept
@@ -135,9 +149,10 @@ private:
     }
 
 public:
-    LedMatrix()
+    esp_err_t start()
     {
-        ESP_LOGI(TAG, "Initializing...");
+        esp_err_t err = ESP_OK;
+        ESP_LOGI(TAG, "Starting...");
 
         constexpr periph_module_t i2s_mod = PERIPH_I2S0_MODULE;
         periph_module_reset(i2s_mod);
@@ -146,11 +161,13 @@ public:
         for (size_t i = 0; i < pinsArr.size(); i++)
         {
             constexpr int iomux_signal_base = I2S0O_DATA_OUT8_IDX;
-            gpioInit(pinsArr[i]);
+            err = gpioInit(pinsArr[i]);
+            if (err != ESP_OK) return err;
             esp_rom_gpio_connect_out_signal(pinsArr[i], iomux_signal_base + i, false, false);
         }
 
-        gpioInit(PIN_CLK);
+        err = gpioInit(PIN_CLK);
+        if (err != ESP_OK) return err;
         constexpr int iomux_clock = I2S0O_WS_OUT_IDX;
         esp_rom_gpio_connect_out_signal(PIN_CLK, iomux_clock, false, false);
 
@@ -158,7 +175,7 @@ public:
             sizeof(lldesc_t) * MATRIX_ROWS_PER_FRAME * MATRIX_COLOR_DEPTH, MALLOC_CAP_DMA))) == nullptr)
         {
             ESP_LOGE(TAG, "Failed to allocate memory for DMA descriptors");
-            abort();
+            return ESP_ERR_NO_MEM;
         }
 
         for (size_t r = 0; r < MATRIX_ROWS_PER_FRAME; r++)
@@ -174,7 +191,7 @@ public:
                 if (row_buf == nullptr)
                 {
                     ESP_LOGE(TAG, "Failed to allocate memory for row buffer");
-                    abort();
+                    return ESP_ERR_NO_MEM;
                 }
 
                 for (size_t p = 0; p < MATRIX_PIXELS_PER_ROW; p++)
@@ -300,7 +317,8 @@ public:
         dev->conf.tx_start = 1;
 
         setBrightness(255);
-        ESP_LOGI(TAG, "Running...");
+        ESP_LOGI(TAG, "Running");
+        return err;
     }
 
     ~LedMatrix()

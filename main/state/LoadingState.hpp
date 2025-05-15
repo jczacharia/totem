@@ -46,7 +46,8 @@ public:
 
         const auto j = nlohmann::json::parse(body_or_error.value());
 
-        Totem::setState<LoadingState>(
+        const auto totem = static_cast<Totem*>(req->user_ctx);
+        totem->setState<LoadingState>(
             j.value("center_x", DEFAULT_CENTER_X),
             j.value("center_y", DEFAULT_CENTER_Y),
             j.value("diameter", DEFAULT_DIAMETER),
@@ -59,7 +60,6 @@ public:
 
     void render(MatrixGfx& gfx) override
     {
-        gfx.clear();
         for (uint8_t i = 0; i < TRAIL_LENGTH; i++)
         {
             const uint8_t pos = (position_ + POSITIONS - i) % POSITIONS;
@@ -80,7 +80,6 @@ public:
         }
 
         position_ = (position_ + 1) % POSITIONS;
-        gfx.flush();
     }
 
 private:

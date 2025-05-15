@@ -8,7 +8,6 @@ public:
     static constexpr TickType_t DEFAULT_RENDER_SPEED_MS = 16;
     static constexpr TickType_t DEFAULT_RENDER_TICK = pdMS_TO_TICKS(DEFAULT_RENDER_SPEED_MS);
     static constexpr TickType_t MIN_RENDER_TICK = 1;
-
     static constexpr uint8_t DEFAULT_BRIGHTNESS = 255;
 
 private:
