@@ -1,10 +1,8 @@
 #pragma once
 
-
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <memory>
 #include <utility>
 
 #include "esp_log.h"
@@ -13,13 +11,13 @@
 #include "freertos/FreeRTOS.h"
 #include "hal/i2s_hal.h"
 #include "hal/i2s_ll.h"
-#include "hal/i2s_types.h"
-#include "util/Singleton.hpp"
-#include "util/util.hpp"
 #include "rom/lldesc.h"
 #include "soc/gpio_sig_map.h"
 
-class LedMatrix final : public util::Singleton<LedMatrix>
+#include "util/Util.hpp"
+
+
+class LedMatrix final
 {
 public:
     static constexpr uint8_t MATRIX_WIDTH = 64;
@@ -29,7 +27,6 @@ public:
 
 private:
     static constexpr auto TAG = "LedMatrix";
-    friend class util::Singleton<LedMatrix>;
 
     static constexpr uint8_t MATRIX_ROWS_PER_FRAME = MATRIX_HEIGHT / 2;
     static constexpr uint8_t MATRIX_PIXELS_PER_ROW = MATRIX_WIDTH;
@@ -118,11 +115,11 @@ private:
         226, 228, 230, 232, 233, 235, 237, 239, 241, 243, 245, 247, 249, 251, 253, 255,
     };
 
-    lldesc_t* dma_desc = nullptr;
+    lldesc_t* dma_desc_ = nullptr;
 
-    volatile uint16_t* dmaDescAt(const size_t idx) const
+    [[nodiscard]] volatile uint16_t* dmaDescAt(const size_t idx) const
     {
-        return reinterpret_cast<volatile uint16_t*>(const_cast<uint8_t*>(dma_desc[idx].buf));
+        return reinterpret_cast<volatile uint16_t*>(const_cast<uint8_t*>(dma_desc_[idx].buf));
     }
 
     static void gpioInit(uint32_t pin)
@@ -137,6 +134,7 @@ private:
         return x_coord & 1U ? x_coord - 1 : x_coord + 1;
     }
 
+public:
     LedMatrix()
     {
         ESP_LOGI(TAG, "Initializing...");
@@ -156,7 +154,7 @@ private:
         constexpr int iomux_clock = I2S0O_WS_OUT_IDX;
         esp_rom_gpio_connect_out_signal(PIN_CLK, iomux_clock, false, false);
 
-        if ((dma_desc = static_cast<lldesc_t*>(heap_caps_malloc(
+        if ((dma_desc_ = static_cast<lldesc_t*>(heap_caps_malloc(
             sizeof(lldesc_t) * MATRIX_ROWS_PER_FRAME * MATRIX_COLOR_DEPTH, MALLOC_CAP_DMA))) == nullptr)
         {
             ESP_LOGE(TAG, "Failed to allocate memory for DMA descriptors");
@@ -195,7 +193,7 @@ private:
 
                 row_buf[xCoord(MATRIX_PIXELS_PER_ROW - 1)] |= BIT_LAT;
 
-                lldesc_t* row_desc = &dma_desc[r * MATRIX_COLOR_DEPTH + d];
+                lldesc_t* row_desc = &dma_desc_[r * MATRIX_COLOR_DEPTH + d];
                 const bool is_last = r == MATRIX_ROWS_PER_FRAME - 1 && d == MATRIX_COLOR_DEPTH - 1;
 
                 row_desc->size = MATRIX_PIXELS_PER_ROW * sizeof(uint16_t);
@@ -204,7 +202,7 @@ private:
                 row_desc->eof = is_last;
                 row_desc->sosf = 0;
                 row_desc->owner = 1;
-                row_desc->qe.stqe_next = is_last ? &dma_desc[0] : &dma_desc[r * MATRIX_COLOR_DEPTH + d + 1];
+                row_desc->qe.stqe_next = is_last ? &dma_desc_[0] : &dma_desc_[r * MATRIX_COLOR_DEPTH + d + 1];
                 row_desc->offset = 0;
             }
         }
@@ -293,7 +291,7 @@ private:
         dev->lc_conf.val = I2S_OUT_DATA_BURST_EN | I2S_OUTDSCR_BURST_EN;
 
         // Should be last dma_descriptor
-        dev->out_link.addr = reinterpret_cast<uint32_t>(dma_desc);
+        dev->out_link.addr = reinterpret_cast<uint32_t>(dma_desc_);
 
         // Start DMA operation
         dev->out_link.stop = 0;
@@ -301,17 +299,54 @@ private:
 
         dev->conf.tx_start = 1;
 
+        setBrightness(255);
         ESP_LOGI(TAG, "Running...");
     }
 
-    ~LedMatrix() override
+    ~LedMatrix()
     {
         ESP_LOGI(TAG, "Destroying...");
-        if (dma_desc) heap_caps_free(dma_desc);
+        if (dma_desc_) heap_caps_free(dma_desc_);
         ESP_LOGI(TAG, "Destroyed");
     }
 
-public:
+    void loadFromBuffer(const std::array<uint32_t, MATRIX_SIZE>& buffer) const
+    {
+        loadFromBuffer(buffer.data());
+    }
+
+    void loadFromBuffer(const volatile uint32_t* buffer) const
+    {
+        if (buffer == nullptr)
+        {
+            return;
+        }
+
+        for (int r = 0; r < MATRIX_ROWS_PER_FRAME; r++)
+        {
+            for (int d = 0; d < MATRIX_COLOR_DEPTH; d++)
+            {
+                const auto dma_row_buffer = dmaDescAt(r * MATRIX_COLOR_DEPTH + d);
+
+                for (int c = 0; c < MATRIX_PIXELS_PER_ROW; c++)
+                {
+                    const uint32_t top_pixel = buffer[r * MATRIX_PIXELS_PER_ROW + c];
+                    const uint32_t bot_pixel = buffer[(r + MATRIX_ROWS_PER_FRAME) * MATRIX_PIXELS_PER_ROW + c];
+                    const uint16_t mask = 1 << (d + MATRIX_COLOR_DEPTH);
+
+                    const int xc = xCoord(c);
+                    dma_row_buffer[xc] &= ~BITMASK_RGB1_RBG2;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel >> 16 & 0xFF]] & mask ? BIT_R1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel >> 8 & 0xFF]] & mask ? BIT_G1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel & 0xFF]] & mask ? BIT_B1 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel >> 16 & 0xFF]] & mask ? BIT_R2 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel >> 8 & 0xFF]] & mask ? BIT_G2 : 0;
+                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel & 0xFF]] & mask ? BIT_B2 : 0;
+                }
+            }
+        }
+    }
+
     void setBrightness(const uint8_t brightness) const
     {
         constexpr uint8_t _depth = MATRIX_COLOR_DEPTH;
@@ -364,161 +399,5 @@ public:
             while (color_idx);
         }
         while (row_idx);
-    }
-
-    void loadFromBuffer(const volatile uint32_t* buffer) const
-    {
-        if (buffer == nullptr)
-        {
-            return;
-        }
-
-        for (int r = 0; r < MATRIX_ROWS_PER_FRAME; r++)
-        {
-            for (int d = 0; d < MATRIX_COLOR_DEPTH; d++)
-            {
-                const auto dma_row_buffer = dmaDescAt(r * MATRIX_COLOR_DEPTH + d);
-
-                for (int c = 0; c < MATRIX_PIXELS_PER_ROW; c++)
-                {
-                    const uint32_t top_pixel = buffer[r * MATRIX_PIXELS_PER_ROW + c];
-                    const uint32_t bot_pixel = buffer[(r + MATRIX_ROWS_PER_FRAME) * MATRIX_PIXELS_PER_ROW + c];
-                    const uint16_t mask = 1 << (d + MATRIX_COLOR_DEPTH);
-
-                    const int xc = xCoord(c);
-                    dma_row_buffer[xc] &= ~BITMASK_RGB1_RBG2;
-                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel >> 16 & 0xFF]] & mask ? BIT_R1 : 0;
-                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel >> 8 & 0xFF]] & mask ? BIT_G1 : 0;
-                    dma_row_buffer[xc] |= lumTbl[gammaTbl[top_pixel & 0xFF]] & mask ? BIT_B1 : 0;
-                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel >> 16 & 0xFF]] & mask ? BIT_R2 : 0;
-                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel >> 8 & 0xFF]] & mask ? BIT_G2 : 0;
-                    dma_row_buffer[xc] |= lumTbl[gammaTbl[bot_pixel & 0xFF]] & mask ? BIT_B2 : 0;
-                }
-            }
-        }
-    }
-
-    void fillRgb(const uint8_t red, const uint8_t green, const uint8_t blue) const
-    {
-        for (int r = 0; r < MATRIX_ROWS_PER_FRAME; r++)
-        {
-            for (int d = 0; d < MATRIX_COLOR_DEPTH; d++)
-            {
-                const auto dma_row_buffer = dmaDescAt(r * MATRIX_COLOR_DEPTH + d);
-                const uint16_t mask = 1 << (d + MATRIX_COLOR_DEPTH);
-
-                for (int c = 0; c < MATRIX_PIXELS_PER_ROW; c++)
-                {
-                    const int xc = xCoord(c);
-
-                    dma_row_buffer[xc] &= ~BITMASK_RGB1_RBG2;
-
-                    // Set R1, G1, B1 for the top half of the matrix
-                    dma_row_buffer[xc] |= lumTbl[red] & mask ? BIT_R1 : 0;
-                    dma_row_buffer[xc] |= lumTbl[green] & mask ? BIT_G1 : 0;
-                    dma_row_buffer[xc] |= lumTbl[blue] & mask ? BIT_B1 : 0;
-
-                    // Set R2, G2, B2 for the bottom half of the matrix
-                    dma_row_buffer[xc] |= lumTbl[red] & mask ? BIT_R2 : 0;
-                    dma_row_buffer[xc] |= lumTbl[green] & mask ? BIT_G2 : 0;
-                    dma_row_buffer[xc] |= lumTbl[blue] & mask ? BIT_B2 : 0;
-                }
-            }
-        }
-    }
-
-    void clear() const
-    {
-        for (int r = 0; r < MATRIX_ROWS_PER_FRAME; r++)
-        {
-            for (int d = 0; d < MATRIX_COLOR_DEPTH; d++)
-            {
-                const auto dma_row_buffer = dmaDescAt(r * MATRIX_COLOR_DEPTH + d);
-                for (int c = 0; c < MATRIX_PIXELS_PER_ROW; c++)
-                {
-                    dma_row_buffer[xCoord(c)] &= ~BITMASK_RGB1_RBG2;
-                }
-            }
-        }
-    }
-
-    void drawPixel(const uint8_t x, const uint8_t y, const uint8_t r, const uint8_t g, const uint8_t b) const
-    {
-        if (x >= MATRIX_WIDTH || y >= MATRIX_HEIGHT)
-        {
-            return;
-        }
-
-        const bool isTopHalf = y < MATRIX_ROWS_PER_FRAME;
-        const int row = isTopHalf ? y : y - MATRIX_ROWS_PER_FRAME;
-
-        for (int d = 0; d < MATRIX_COLOR_DEPTH; d++)
-        {
-            const auto dma_row_buffer = dmaDescAt(row * MATRIX_COLOR_DEPTH + d);
-            const uint16_t mask = 1 << (d + MATRIX_COLOR_DEPTH);
-
-            const int xc = xCoord(x);
-
-            if (isTopHalf)
-            {
-                dma_row_buffer[xc] &= ~BITMASK_RGB1;
-                dma_row_buffer[xc] |= lumTbl[r] & mask ? BIT_R1 : 0;
-                dma_row_buffer[xc] |= lumTbl[g] & mask ? BIT_G1 : 0;
-                dma_row_buffer[xc] |= lumTbl[b] & mask ? BIT_B1 : 0;
-            }
-            else
-            {
-                dma_row_buffer[xc] &= ~BITMASK_RGB2;
-                dma_row_buffer[xc] |= lumTbl[r] & mask ? BIT_R2 : 0;
-                dma_row_buffer[xc] |= lumTbl[g] & mask ? BIT_G2 : 0;
-                dma_row_buffer[xc] |= lumTbl[b] & mask ? BIT_B2 : 0;
-            }
-        }
-    }
-
-    void getPixel(const uint8_t x, const uint8_t y, uint8_t& r, uint8_t& g, uint8_t& b) const
-    {
-        // Initialize output values to zero (black) in case pixel is out of bounds
-        r = g = b = 0;
-
-        // Check if coordinates are within matrix bounds
-        if (x >= MATRIX_WIDTH || y >= MATRIX_HEIGHT)
-        {
-            return;
-        }
-
-        // Determine if this pixel is in the top or bottom half of the matrix
-        const bool isTopHalf = y < MATRIX_ROWS_PER_FRAME;
-        const int row = isTopHalf ? y : y - MATRIX_ROWS_PER_FRAME;
-        const int xc = xCoord(x);
-
-        // We'll use bit contribution from each color depth plane to reconstruct the color intensity
-        uint16_t rValue = 0;
-        uint16_t gValue = 0;
-        uint16_t bValue = 0;
-
-        const uint16_t rBit = isTopHalf ? BIT_R1 : BIT_R2;
-        const uint16_t gBit = isTopHalf ? BIT_G1 : BIT_G2;
-        const uint16_t bBit = isTopHalf ? BIT_B1 : BIT_B2;
-
-        // Check each bit plane and accumulate the color intensity
-        for (int d = 0; d < MATRIX_COLOR_DEPTH; d++)
-        {
-            const auto dma_buffer = dmaDescAt(row * MATRIX_COLOR_DEPTH + d);
-            // Each bit plane contributes a power of 2 to the final color intensity
-            const uint16_t bit_value = 1 << d;
-
-            if (dma_buffer[xc] & rBit) rValue |= bit_value;
-            if (dma_buffer[xc] & gBit) gValue |= bit_value;
-            if (dma_buffer[xc] & bBit) bValue |= bit_value;
-        }
-
-        // Scale the 8-bit values to the 0-255 range
-        // Assuming MATRIX_COLOR_DEPTH is 8, this gives a full 8-bit color range
-        constexpr float scale = 255.0f / ((1 << MATRIX_COLOR_DEPTH) - 1);
-
-        r = static_cast<uint8_t>(rValue * scale);
-        g = static_cast<uint8_t>(gValue * scale);
-        b = static_cast<uint8_t>(bValue * scale);
     }
 };

@@ -64,7 +64,7 @@
         displayBufferPreview(buffer);
 
         // Upload to ESP32
-        await fetch('/api/v1/matrix/gif', {
+        await fetch('/api/matrix/state/gif', {
           method: 'POST',
           body: buffer.buffer,
         });
@@ -121,7 +121,7 @@
           throw new Error('No frames were extracted from the GIF');
         }
         console.log(frames);
-        await fetch('/api/v1/matrix/gif', {
+        await fetch('/api/matrix/state/gif', {
           method: 'POST',
           body: frames.buffer,
         });

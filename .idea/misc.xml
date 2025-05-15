@@ -7,9 +7,12 @@
   <component name="CidrRootsConfiguration">
     <libraryRoots>
       <file path="$PROJECT_DIR$/../../../Espressif/frameworks/esp-idf-v5.4.1" />
+      <file path="$PROJECT_DIR$/components" />
+      <file path="$PROJECT_DIR$/main/nlohmann" />
       <file path="$PROJECT_DIR$/managed_components" />
     </libraryRoots>
     <excludeRoots>
+      <file path="$PROJECT_DIR$/.vscode" />
       <file path="$PROJECT_DIR$/totem" />
     </excludeRoots>
   </component>

@@ -1,2 +1,2 @@
 idf_component_register(SRCS "Main.cpp"
-                    INCLUDE_DIRS "." "util" "endpoints" "totem")
+                       INCLUDE_DIRS ".")
