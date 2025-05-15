@@ -8,17 +8,20 @@
 #include "protocol_examples_common.h"
 #include "lwip/apps/netbiosns.h"
 
-#include "state/LoadingState.hpp"
-#include "state/Totem.hpp"
-#include "state/GifState.hpp"
-#include "state/WifiConnectingState.hpp"
-#include "state/AudioSpectrumState.hpp"
-#include "server/RestServer.hpp"
+#include "Totem.hpp"
+#include "RestServer.hpp"
 
-static constexpr auto TAG = "Main";
+#include "patterns/audio/AudioSpectrumPattern.hpp"
+
+#include "patterns/static/GifPattern.hpp"
+#include "patterns/static/LoadingPattern.hpp"
+#include "patterns/static/SinglePixelPattern.hpp"
+#include "patterns/static/SolidColorPattern.hpp"
+#include "patterns/static/WifiConnectingPattern.hpp"
 
 #define MDNS_HOST_NAME "esp-home"
 #define MDNS_INSTANCE "totem server"
+static constexpr auto TAG = "Main";
 
 LedMatrix matrix;
 Microphone microphone;
@@ -31,15 +34,15 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(matrix.start());
     ESP_ERROR_CHECK(microphone.start());
     ESP_ERROR_CHECK(totem.start());
-    totem.setState<WifiConnectingState>();
+    totem.set_state<LoadingPattern>();
 
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    mdns_init();
-    mdns_hostname_set(MDNS_HOST_NAME);
-    mdns_instance_name_set(MDNS_INSTANCE);
+    ESP_ERROR_CHECK(mdns_init());
+    ESP_ERROR_CHECK(mdns_hostname_set(MDNS_HOST_NAME));
+    ESP_ERROR_CHECK(mdns_instance_name_set(MDNS_INSTANCE));
 
     mdns_txt_item_t serviceTxtData[] = {
         {"board", "esp32"},
@@ -62,25 +65,56 @@ extern "C" void app_main(void)
 
     ESP_ERROR_CHECK(server.start());
 
-    ESP_ERROR_CHECK(server.registerEndpoint(
-        "/api/matrix/state/gif",
+    // Totem settings
+
+    ESP_ERROR_CHECK(server.register_endpoint(
+        "/api/brightness",
         HTTP_POST,
-        GifState::endpoint,
+        Totem::brightness_endpoint ,
         &totem));
 
-    ESP_ERROR_CHECK(server.registerEndpoint(
-        "/api/matrix/state/loading",
+    // Audio Patterns
+
+    ESP_ERROR_CHECK(server.register_endpoint(
+        "/api/pattern/audio-spectrum",
         HTTP_POST,
-        LoadingState::endpoint,
+        AudioSpectrumPattern::endpoint,
         &totem));
 
-    ESP_ERROR_CHECK(server.registerEndpoint(
-        "/api/matrix/state/audio-spectrum",
+    // Static Patterns
+
+    ESP_ERROR_CHECK(server.register_endpoint(
+        "/api/pattern/gif",
         HTTP_POST,
-        AudioSpectrumState::endpoint,
+        GifPattern::endpoint,
         &totem));
 
-    totem.setState<AudioSpectrumState>();
+    ESP_ERROR_CHECK(server.register_endpoint(
+        "/api/pattern/loading",
+        HTTP_POST,
+        LoadingPattern::endpoint,
+        &totem));
+
+    ESP_ERROR_CHECK(server.register_endpoint(
+        "/api/pattern/single-pixel",
+        HTTP_POST,
+        SinglePixelPattern::endpoint,
+        &totem));
+
+    ESP_ERROR_CHECK(server.register_endpoint(
+        "/api/pattern/solid-color",
+        HTTP_POST,
+        SolidColorPattern::endpoint,
+        &totem));
+
+    ESP_ERROR_CHECK(server.register_endpoint(
+        "/api/pattern/wifi-connecting",
+        HTTP_POST,
+        WifiConnectingPattern::endpoint,
+        &totem));
+
+
+    totem.set_state<AudioSpectrumPattern>();
     ESP_LOGI(TAG, "Totem is running!");
     vTaskDelete(nullptr);
 }

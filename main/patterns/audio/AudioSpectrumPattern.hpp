@@ -4,12 +4,12 @@
 #include <array>
 #include <nlohmann/json.hpp>
 
-#include "audio/Microphone.hpp"
-#include "TotemState.hpp"
+#include "Totem.hpp"
+#include "util/Math.h"
 
-class AudioSpectrumState final : public TotemState
+class AudioSpectrumPattern final : public PatternBase
 {
-    static constexpr auto TAG = "AudioSpectrumState";
+    static constexpr auto TAG = "AudioSpectrumPattern";
 
     static constexpr float DEFAULT_PEAK_HOLD_TIME = 3.0f;
     static constexpr float DEFAULT_BAND_NORM_FACTOR = 0.995f;
@@ -50,7 +50,7 @@ class AudioSpectrumState final : public TotemState
     bool animationDirectionForward_ = true;
 
 public:
-    explicit AudioSpectrumState(
+    explicit AudioSpectrumPattern(
         const float peak_hold_time = DEFAULT_PEAK_HOLD_TIME,
         const float band_normalization_factor = DEFAULT_BAND_NORM_FACTOR,
         const float log_scale_base = DEFAULT_LOG_SCALE_BASE,
@@ -76,13 +76,13 @@ public:
 
     static esp_err_t endpoint(httpd_req_t* req)
     {
-        auto body_or_error = util::readRequestBody(req, TAG);
+        auto body_or_error = util::http::get_req_body(req, TAG);
         if (!body_or_error) return body_or_error.error();
 
         const auto j = nlohmann::json::parse(body_or_error.value());
 
         const auto totem = static_cast<Totem*>(req->user_ctx);
-        totem->setState<AudioSpectrumState>(
+        totem->set_state<AudioSpectrumPattern>(
             j.value("peak_hold_time", DEFAULT_PEAK_HOLD_TIME),
             j.value("band_norm_factor", DEFAULT_BAND_NORM_FACTOR),
             j.value("log_scale_base", DEFAULT_LOG_SCALE_BASE),
@@ -94,12 +94,12 @@ public:
             j.value("energy_decay_min", DEFAULT_ENERGY_DECAY_MIN),
             j.value("energy_decay_max", DEFAULT_ENERGY_DECAY_MAX));
 
-        httpd_resp_sendstr(req, "AudioSpectrumState set successfully");
+        httpd_resp_sendstr(req, "AudioSpectrumPattern set successfully");
         return ESP_OK;
     }
 
 private:
-    void handleAnimPhase()
+    void handle_anim_phase()
     {
         if (animationDirectionForward_)
         {
@@ -123,59 +123,10 @@ private:
         }
     }
 
-    void getHeightColor(const int height, uint8_t& r, uint8_t& g, uint8_t& b) const
-    {
-        const float normalizedHeight = static_cast<float>(height) / LedMatrix::MATRIX_HEIGHT;
-        const float hue = (0.33f + animationPhase_) * (1.0f - normalizedHeight);
-
-        const float h_i = hue * 6.0f;
-        const int i = static_cast<int>(h_i);
-        const float f = h_i - i;
-        constexpr float p = 0.0f;
-        const float q = 1.0f - f;
-        const float t = f;
-
-        switch (i % 6)
-        {
-        case 0:
-            r = 255;
-            g = static_cast<uint8_t>(t * 255.0f);
-            b = static_cast<uint8_t>(p * 255.0f);
-            break;
-        case 1:
-            r = static_cast<uint8_t>(q * 255.0f);
-            g = 255;
-            b = static_cast<uint8_t>(p * 255.0f);
-            break;
-        case 2:
-            r = static_cast<uint8_t>(p * 255.0f);
-            g = 255;
-            b = static_cast<uint8_t>(t * 255.0f);
-            break;
-        case 3:
-            r = static_cast<uint8_t>(p * 255.0f);
-            g = static_cast<uint8_t>(q * 255.0f);
-            b = 255;
-            break;
-        case 4:
-            r = static_cast<uint8_t>(t * 255.0f);
-            g = static_cast<uint8_t>(p * 255.0f);
-            b = 255;
-            break;
-        case 5:
-            r = 255;
-            g = static_cast<uint8_t>(p * 255.0f);
-            b = static_cast<uint8_t>(q * 255.0f);
-            break;
-        default:
-            break;
-        }
-    }
-
 public:
     void render(MatrixGfx& gfx) override
     {
-        handleAnimPhase();
+        handle_anim_phase();
 
         gfx.microphone.getSpectrum(spectrum_);
 
@@ -209,7 +160,7 @@ public:
 
         // Display
 
-        for (int x = 0; x < LedMatrix::MATRIX_WIDTH; ++x)
+        for (uint8_t x = 0; x < LedMatrix::MATRIX_WIDTH; ++x)
         {
             if (const float currentValue = spectrum_[x]; currentValue > lastSpectrum_[x])
             {
@@ -237,22 +188,20 @@ public:
                 }
             }
 
-            const size_t height = std::min(
-                static_cast<size_t>(lastSpectrum_[x]), static_cast<size_t>(LedMatrix::MATRIX_HEIGHT));
+            constexpr size_t m_height_size_t = LedMatrix::MATRIX_HEIGHT;
+            const size_t height = std::min(static_cast<size_t>(lastSpectrum_[x]), m_height_size_t);
+            const size_t peakHeight = std::min(static_cast<size_t>(peakLevels_[x]), m_height_size_t - 1);
 
-            const size_t peakHeight = std::min(
-                static_cast<size_t>(peakLevels_[x]), static_cast<size_t>(LedMatrix::MATRIX_HEIGHT) - 1);
-
-            for (int y = 0; y < height; ++y)
+            for (uint8_t y = 0; y < height; ++y)
             {
-                uint8_t r, g, b;
-                getHeightColor(y, r, g, b);
-                gfx.drawPixel(x, LedMatrix::MATRIX_HEIGHT - 1 - y, r, g, b);
+                const float norm = util::math::unit_norm(y, m_height_size_t);
+                const float hue = util::math::unit_lerp(util::colors::GREEN + animationPhase_, util::colors::RED, norm);
+                gfx.draw_pixel_hsv(x, m_height_size_t - 1 - y, hue);
             }
 
             if (peakHeight > 0)
             {
-                gfx.drawPixel(x, LedMatrix::MATRIX_HEIGHT - 1 - peakHeight, 255, 255, 255);
+                gfx.draw_pixel_hsv(x, m_height_size_t - 1 - peakHeight, 1.0f);
             }
         }
     }

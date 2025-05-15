@@ -3,11 +3,11 @@
 #include <string>
 #include <atomic>
 
-#include "TotemState.hpp"
+#include "Totem.hpp"
 
-class GifState final : public TotemState
+class GifPattern final : public PatternBase
 {
-    static constexpr auto TAG = "GifState";
+    static constexpr auto TAG = "GifPattern";
 
     std::string gif_data_;
     uint8_t* gif_buffer_ = nullptr;
@@ -15,7 +15,7 @@ class GifState final : public TotemState
     uint16_t total_frames_{0};
 
 public:
-    GifState(std::string data, const size_t size)
+    GifPattern(std::string data, const size_t size)
     {
         setRenderTick(pdMS_TO_TICKS(50));
         setGifData(std::move(data), size);
@@ -27,7 +27,7 @@ public:
         {
             auto buf = reinterpret_cast<uint32_t*>(gif_buffer_);
             buf = buf + frame_idx_.load() * LedMatrix::MATRIX_SIZE;
-            gfx.setBufferFromPtr(buf);
+            gfx.set_buf_from_ptr(buf);
             frame_idx_.store((frame_idx_.load() + 1) % total_frames_);
         }
     }
@@ -42,7 +42,7 @@ public:
 
     static esp_err_t endpoint(httpd_req_t* req)
     {
-        auto body_or_error = util::readRequestBody(req, TAG);
+        auto body_or_error = util::http::get_req_body(req, TAG);
         if (!body_or_error) return body_or_error.error();
 
         std::string body = std::move(body_or_error.value());
@@ -66,9 +66,9 @@ public:
         }
 
         const auto totem = static_cast<Totem*>(req->user_ctx);
-        totem->setState<GifState>(std::move(body), size);
+        totem->set_state<GifPattern>(std::move(body), size);
 
-        httpd_resp_sendstr(req, "GifState set successfully");
+        httpd_resp_sendstr(req, "GifPattern set successfully");
         return ESP_OK;
     }
 };

@@ -1,10 +1,11 @@
 ﻿#pragma once
 
 #include "Totem.hpp"
-#include "TotemState.hpp"
 
-class WifiConnectingState final : public TotemState
+class WifiConnectingPattern final : public PatternBase
 {
+    static constexpr auto TAG = "WifiConnectingPattern";
+
     // WiFi symbol configuration
     static constexpr uint8_t CENTER_X = 32; // Center of the display
     static constexpr uint8_t CENTER_Y = 32; // Center of the display
@@ -80,7 +81,7 @@ class WifiConnectingState final : public TotemState
             {
                 if (dx * dx + dy * dy <= radius * radius)
                 {
-                    gfx.drawPixel(x + dx, y + dy, r, g, b);
+                    gfx.draw_pixel_rgb(x + dx, y + dy, r, g, b);
                 }
             }
         }
@@ -113,7 +114,7 @@ class WifiConnectingState final : public TotemState
                     // Check if angle is within arc's angle range
                     if (angle >= start_rad && angle <= end_rad)
                     {
-                        gfx.drawPixel(x + dx, y + dy, r, g, b);
+                        gfx.draw_pixel_rgb(x + dx, y + dy, r, g, b);
                     }
                 }
             }
@@ -171,7 +172,7 @@ class WifiConnectingState final : public TotemState
     }
 
 public:
-    WifiConnectingState()
+    WifiConnectingPattern()
     {
         // Set default render speed for smooth animation
         setRenderTick(pdMS_TO_TICKS(33)); // ~30fps
@@ -183,7 +184,21 @@ public:
         drawWiFiSymbol(gfx);
 
         // Draw "Connecting" text at the bottom
-        gfx.setCursor(3, LedMatrix::MATRIX_HEIGHT - (LedMatrix::MATRIX_HEIGHT / 3));
+        gfx.set_cursor(3, LedMatrix::MATRIX_HEIGHT - (LedMatrix::MATRIX_HEIGHT / 3));
         gfx.print("Connecting", TEXT_R, TEXT_G, TEXT_B);
+    }
+
+    static esp_err_t endpoint(httpd_req_t* req)
+    {
+        auto body_or_error = util::http::get_req_body(req, TAG);
+        if (!body_or_error) return body_or_error.error();
+
+        const auto j = nlohmann::json::parse(body_or_error.value());
+
+        const auto totem = static_cast<Totem*>(req->user_ctx);
+        totem->set_state<WifiConnectingPattern>();
+
+        httpd_resp_sendstr(req, "WifiConnectingPattern set successfully");
+        return ESP_OK;
     }
 };

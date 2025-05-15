@@ -66,7 +66,7 @@ public:
         return ESP_OK;
     }
 
-    esp_err_t registerEndpoint(const char* uri,
+    esp_err_t register_endpoint(const char* uri,
                                const httpd_method_t method,
                                esp_err_t (*handler)(httpd_req_t* req),
                                void* deps = nullptr) const

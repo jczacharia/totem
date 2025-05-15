@@ -5,9 +5,10 @@
 #include <cmath>
 
 #include "util/Font.hpp"
+#include "util/Colors.hpp"
 
 #include "LedMatrix.hpp"
-#include "audio/Microphone.hpp"
+#include "Microphone.hpp"
 
 class MatrixGfx final
 {
@@ -28,36 +29,19 @@ private:
     uint8_t cursor_x_ = 0;
     uint8_t cursor_y_ = 0;
 
-    uint8_t brightness_ = 255;
-
     static constexpr const uint8_t* font5x7 = util::font5x7;
     uint8_t text_size_ = 1;
     bool wrap_text_ = true;
-
-    static void colorToRgb(const uint32_t color, uint8_t& r, uint8_t& g, uint8_t& b)
-    {
-        r = (color >> 16) & 0xFF;
-        g = (color >> 8) & 0xFF;
-        b = color & 0xFF;
-    }
-
-    static uint32_t rgbToColor(const uint8_t red, const uint8_t green, const uint8_t blue)
-    {
-        const auto r = static_cast<uint32_t>(red) << 16;
-        const auto g = static_cast<uint32_t>(green) << 8;
-        const auto b = static_cast<uint32_t>(blue);
-        return r | g | b;
-    }
 
     void clear()
     {
         std::ranges::fill(buffer_, 0);
     }
 
-    void flush() const
+    void flush(const uint8_t brightness = 255) const
     {
         led_matrix_.loadFromBuffer(buffer_);
-        led_matrix_.setBrightness(brightness_);
+        led_matrix_.setBrightness(brightness);
     }
 
 public:
@@ -66,7 +50,7 @@ public:
     {
     }
 
-    void setBufferFromPtr(const uint32_t* ptr)
+    void set_buf_from_ptr(const uint32_t* ptr)
     {
         if (ptr != nullptr)
         {
@@ -74,56 +58,63 @@ public:
         }
     }
 
-    void setBrightness(const uint8_t brightness)
-    {
-        brightness_ = brightness;
-    }
-
-    void setWrapText(const bool wrap_text)
+    void set_wrap_text(const bool wrap_text)
     {
         wrap_text_ = wrap_text;
     }
 
-    void setCursor(const uint8_t x, const uint8_t y)
+    void set_cursor(const uint8_t x, const uint8_t y)
     {
         cursor_x_ = std::min(x, static_cast<uint8_t>(LedMatrix::MATRIX_WIDTH - 1));
         cursor_y_ = std::min(y, static_cast<uint8_t>(LedMatrix::MATRIX_HEIGHT - 1));
     }
 
-    void resetCursor()
+    void reset_cursor()
     {
         cursor_x_ = 0;
         cursor_y_ = 0;
     }
 
-    void getCursor(uint8_t& x, uint8_t& y) const
+    void get_cursor(uint8_t& x, uint8_t& y) const
     {
         x = cursor_x_;
         y = cursor_y_;
     }
 
-    void drawPixel(const uint8_t x, const uint8_t y, const uint8_t r, const uint8_t g, const uint8_t b)
+    void draw_pixel_rgb(const uint8_t x, const uint8_t y, const uint8_t r, const uint8_t g, const uint8_t b)
     {
         if (x >= LedMatrix::MATRIX_WIDTH || y >= LedMatrix::MATRIX_HEIGHT) return;
-        buffer_[y * LedMatrix::MATRIX_WIDTH + x] = rgbToColor(r, g, b);
+        buffer_[y * LedMatrix::MATRIX_WIDTH + x] = rgb_to_color_(r, g, b);
     }
 
-    void drawPixel(const uint8_t red, const uint8_t green, const uint8_t blue)
+    void draw_pixel_rgb(const uint8_t red, const uint8_t green, const uint8_t blue)
     {
-        drawPixel(cursor_x_, cursor_y_, red, green, blue);
+        draw_pixel_rgb(cursor_x_, cursor_y_, red, green, blue);
     }
 
-    void getPixel(const uint8_t x, const uint8_t y, uint8_t& r_out, uint8_t& g_out, uint8_t& b_out) const
+    void draw_pixel_hsv(const uint8_t x, const uint8_t y, const float h, const float s = 1.0f, const float v = 1.0f)
+    {
+        uint8_t r, g, b;
+        util::colors::hsv_to_rgb(h, s, v, r, g, b);
+        draw_pixel_rgb(x, y, r, g, b);
+    }
+
+    void draw_pixel_hsv(const float h, const float s = 1.0f, const float v = 1.0f)
+    {
+        draw_pixel_hsv(cursor_x_, cursor_y_, h, s, v);
+    }
+
+    void get_pixel(const uint8_t x, const uint8_t y, uint8_t& r_out, uint8_t& g_out, uint8_t& b_out) const
     {
         r_out = g_out = b_out = 0;
 
         if (x >= LedMatrix::MATRIX_WIDTH || y >= LedMatrix::MATRIX_HEIGHT) return;
 
         const uint32_t color = buffer_[y * LedMatrix::MATRIX_WIDTH + x];
-        colorToRgb(color, r_out, g_out, b_out);
+        color_to_rgb_(color, r_out, g_out, b_out);
     }
 
-    void fillRgb(const uint8_t red, const uint8_t green, const uint8_t blue)
+    void fill_rgb(const uint8_t red, const uint8_t green, const uint8_t blue)
     {
         const auto r = static_cast<uint32_t>(red) << 16;
         const auto g = static_cast<uint32_t>(green) << 8;
@@ -133,7 +124,8 @@ public:
         std::ranges::fill(buffer_, color);
     }
 
-    void drawLine(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, const uint8_t r, const uint8_t g, const uint8_t b)
+    void draw_line_rgb(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, const uint8_t r, const uint8_t g,
+                       const uint8_t b)
     {
         const int16_t steep = abs(y1 - y0) > abs(x1 - x0);
         if (steep)
@@ -157,11 +149,11 @@ public:
         {
             if (steep)
             {
-                drawPixel(y0, x0, r, g, b);
+                draw_pixel_rgb(y0, x0, r, g, b);
             }
             else
             {
-                drawPixel(x0, y0, r, g, b);
+                draw_pixel_rgb(x0, y0, r, g, b);
             }
 
             err -= dy;
@@ -173,29 +165,29 @@ public:
         }
     }
 
-    void drawRect(const uint8_t x, const uint8_t y, const uint8_t w, const uint8_t h,
-                  const uint8_t r, const uint8_t g, const uint8_t b)
+    void draw_rect_rgb(const uint8_t x, const uint8_t y, const uint8_t w, const uint8_t h,
+                       const uint8_t r, const uint8_t g, const uint8_t b)
     {
-        drawLine(x, y, x + w - 1, y, r, g, b); // Top
-        drawLine(x, y + h - 1, x + w - 1, y + h - 1, r, g, b); // Bottom
-        drawLine(x, y, x, y + h - 1, r, g, b); // Left
-        drawLine(x + w - 1, y, x + w - 1, y + h - 1, r, g, b); // Right
+        draw_line_rgb(x, y, x + w - 1, y, r, g, b); // Top
+        draw_line_rgb(x, y + h - 1, x + w - 1, y + h - 1, r, g, b); // Bottom
+        draw_line_rgb(x, y, x, y + h - 1, r, g, b); // Left
+        draw_line_rgb(x + w - 1, y, x + w - 1, y + h - 1, r, g, b); // Right
     }
 
-    void fillRect(const uint8_t x, const uint8_t y, const uint8_t w, const uint8_t h,
-                  const uint8_t r, const uint8_t g, const uint8_t b)
+    void fill_rect_rgb(const uint8_t x, const uint8_t y, const uint8_t w, const uint8_t h,
+                       const uint8_t r, const uint8_t g, const uint8_t b)
     {
         for (uint8_t i = x; i < x + w; i++)
         {
             for (uint8_t j = y; j < y + h; j++)
             {
-                drawPixel(i, j, r, g, b);
+                draw_pixel_rgb(i, j, r, g, b);
             }
         }
     }
 
-    void drawCircle(const uint8_t x0, const uint8_t y0, const uint8_t radius,
-                    const uint8_t r, const uint8_t g, const uint8_t b)
+    void draw_circle_rgb(const uint8_t x0, const uint8_t y0, const uint8_t radius,
+                         const uint8_t r, const uint8_t g, const uint8_t b)
     {
         int16_t f = 1 - radius;
         int16_t ddF_x = 1;
@@ -203,10 +195,10 @@ public:
         int16_t x = 0;
         int16_t y = radius;
 
-        drawPixel(x0, y0 + radius, r, g, b);
-        drawPixel(x0, y0 - radius, r, g, b);
-        drawPixel(x0 + radius, y0, r, g, b);
-        drawPixel(x0 - radius, y0, r, g, b);
+        draw_pixel_rgb(x0, y0 + radius, r, g, b);
+        draw_pixel_rgb(x0, y0 - radius, r, g, b);
+        draw_pixel_rgb(x0 + radius, y0, r, g, b);
+        draw_pixel_rgb(x0 - radius, y0, r, g, b);
 
         while (x < y)
         {
@@ -221,19 +213,19 @@ public:
             ddF_x += 2;
             f += ddF_x;
 
-            drawPixel(x0 + x, y0 + y, r, g, b);
-            drawPixel(x0 - x, y0 + y, r, g, b);
-            drawPixel(x0 + x, y0 - y, r, g, b);
-            drawPixel(x0 - x, y0 - y, r, g, b);
-            drawPixel(x0 + y, y0 + x, r, g, b);
-            drawPixel(x0 - y, y0 + x, r, g, b);
-            drawPixel(x0 + y, y0 - x, r, g, b);
-            drawPixel(x0 - y, y0 - x, r, g, b);
+            draw_pixel_rgb(x0 + x, y0 + y, r, g, b);
+            draw_pixel_rgb(x0 - x, y0 + y, r, g, b);
+            draw_pixel_rgb(x0 + x, y0 - y, r, g, b);
+            draw_pixel_rgb(x0 - x, y0 - y, r, g, b);
+            draw_pixel_rgb(x0 + y, y0 + x, r, g, b);
+            draw_pixel_rgb(x0 - y, y0 + x, r, g, b);
+            draw_pixel_rgb(x0 + y, y0 - x, r, g, b);
+            draw_pixel_rgb(x0 - y, y0 - x, r, g, b);
         }
     }
 
-    void fillCircle(const uint8_t x0, const uint8_t y0, const uint8_t radius,
-                    const uint8_t r, const uint8_t g, const uint8_t b)
+    void fill_circle_rgb(const uint8_t x0, const uint8_t y0, const uint8_t radius,
+                         const uint8_t r, const uint8_t g, const uint8_t b)
     {
         int16_t f = 1 - radius;
         int16_t ddF_x = 1;
@@ -243,7 +235,7 @@ public:
 
         for (int16_t i = -radius; i <= radius; i++)
         {
-            drawPixel(x0, y0 + i, r, g, b);
+            draw_pixel_rgb(x0, y0 + i, r, g, b);
         }
 
         while (x < y)
@@ -261,18 +253,18 @@ public:
 
             for (int16_t i = -y; i <= y; i++)
             {
-                drawPixel(x0 + x, y0 + i, r, g, b);
-                drawPixel(x0 - x, y0 + i, r, g, b);
+                draw_pixel_rgb(x0 + x, y0 + i, r, g, b);
+                draw_pixel_rgb(x0 - x, y0 + i, r, g, b);
             }
             for (int16_t i = -x; i <= x; i++)
             {
-                drawPixel(x0 + i, y0 + y, r, g, b);
-                drawPixel(x0 + i, y0 - y, r, g, b);
+                draw_pixel_rgb(x0 + i, y0 + y, r, g, b);
+                draw_pixel_rgb(x0 + i, y0 - y, r, g, b);
             }
         }
     }
 
-    void drawChar(char c, const uint8_t r, const uint8_t g, const uint8_t b, const uint8_t size = 1)
+    void draw_char_rgb(char c, const uint8_t r, const uint8_t g, const uint8_t b, const uint8_t size = 1)
     {
         const uint8_t s = size > 0 ? size : text_size_;
 
@@ -323,11 +315,11 @@ public:
                 {
                     if (s == 1)
                     {
-                        drawPixel(cursor_x_ + col, cursor_y_ + row, r, g, b);
+                        draw_pixel_rgb(cursor_x_ + col, cursor_y_ + row, r, g, b);
                     }
                     else
                     {
-                        fillRect(cursor_x_ + (col * s), cursor_y_ + (row * s), s, s, r, g, b);
+                        fill_rect_rgb(cursor_x_ + (col * s), cursor_y_ + (row * s), s, s, r, g, b);
                     }
                 }
             }
@@ -340,7 +332,7 @@ public:
     {
         while (*str)
         {
-            drawChar(*str++, r, g, b, size);
+            draw_char_rgb(*str++, r, g, b, size);
         }
     }
 
@@ -358,5 +350,21 @@ public:
                 cursor_y_ = 0;
             }
         }
+    }
+
+private:
+    static void color_to_rgb_(const uint32_t color, uint8_t& r, uint8_t& g, uint8_t& b)
+    {
+        r = (color >> 16) & 0xFF;
+        g = (color >> 8) & 0xFF;
+        b = color & 0xFF;
+    }
+
+    static uint32_t rgb_to_color_(const uint8_t red, const uint8_t green, const uint8_t blue)
+    {
+        const auto r = static_cast<uint32_t>(red) << 16;
+        const auto g = static_cast<uint32_t>(green) << 8;
+        const auto b = static_cast<uint32_t>(blue);
+        return r | g | b;
     }
 };

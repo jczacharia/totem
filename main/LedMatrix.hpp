@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <utility>
 
 #include "esp_log.h"
 #include "driver/gpio.h"
@@ -13,8 +12,6 @@
 #include "hal/i2s_ll.h"
 #include "rom/lldesc.h"
 #include "soc/gpio_sig_map.h"
-
-#include "util/Util.hpp"
 
 
 class LedMatrix final

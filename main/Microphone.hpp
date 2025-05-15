@@ -4,7 +4,7 @@
 #include <vector>
 #include <driver/i2s_std.h>
 
-#include "matrix/LedMatrix.hpp"
+#include "util/Fft.hpp"
 
 /**
  * @brief Class for controlling the INMP441 I2S microphone on ESP32
