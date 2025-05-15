@@ -13,17 +13,25 @@ class AudioSpectrumState final : public TotemState
 
     static constexpr float DEFAULT_PEAK_HOLD_TIME = 3.0f;
     static constexpr float DEFAULT_BAND_NORM_FACTOR = 0.995f;
-    static constexpr float DEFAULT_LOG_SCALE_BASE = 8.0f;
-    static constexpr float DEFAULT_ANIMATION_SPEED = 0.001f;
-    static constexpr float DEFAULT_ENERGY_ATTACK_FACTOR = 1.5f;
-    static constexpr float DEFAULT_ENERGY_DECAY_FACTOR = 0.4f;
+    static constexpr float DEFAULT_LOG_SCALE_BASE = 1.0f;
+    static constexpr float DEFAULT_ANIMATION_SPEED = 0.0025f;
+    static constexpr float DEFAULT_ENERGY_ATTACK_FACTOR = 10.0f;
+    static constexpr float DEFAULT_ENERGY_ATTACK_MIN = 0.2f;
+    static constexpr float DEFAULT_ENERGY_ATTACK_MAX = 0.8f;
+    static constexpr float DEFAULT_ENERGY_DECAY_FACTOR = 0.01f;
+    static constexpr float DEFAULT_ENERGY_DECAY_MIN = 0.6f;
+    static constexpr float DEFAULT_ENERGY_DECAY_MAX = 0.95f;
 
     float PEAK_HOLD_TIME;
     float BAND_NORM_FACTOR;
     float LOG_SCALE_BASE;
     float ANIMATION_SPEED;
     float ENERGY_ATTACK_FACTOR;
+    float ENERGY_ATTACK_MIN;
+    float ENERGY_ATTACK_MAX;
     float ENERGY_DECAY_FACTOR;
+    float ENERGY_DECAY_MIN;
+    float ENERGY_DECAY_MAX;
 
     using Spectrum = std::array<float, LedMatrix::MATRIX_WIDTH>;
     Spectrum spectrum_{};
@@ -48,13 +56,21 @@ public:
         const float log_scale_base = DEFAULT_LOG_SCALE_BASE,
         const float animation_speed = DEFAULT_ANIMATION_SPEED,
         const float energy_attack_factor = DEFAULT_ENERGY_ATTACK_FACTOR,
-        const float energy_decay_factor = DEFAULT_ENERGY_DECAY_FACTOR)
+        const float energy_attack_min = DEFAULT_ENERGY_ATTACK_MIN,
+        const float energy_attack_max = DEFAULT_ENERGY_ATTACK_MAX,
+        const float energy_decay_factor = DEFAULT_ENERGY_DECAY_FACTOR,
+        const float energy_decay_min = DEFAULT_ENERGY_DECAY_MIN,
+        const float energy_decay_max = DEFAULT_ENERGY_DECAY_MAX)
         : PEAK_HOLD_TIME(peak_hold_time),
           BAND_NORM_FACTOR(band_normalization_factor),
           LOG_SCALE_BASE(log_scale_base),
           ANIMATION_SPEED(animation_speed),
           ENERGY_ATTACK_FACTOR(energy_attack_factor),
-          ENERGY_DECAY_FACTOR(energy_decay_factor)
+          ENERGY_ATTACK_MIN(energy_attack_min),
+          ENERGY_ATTACK_MAX(energy_attack_max),
+          ENERGY_DECAY_FACTOR(energy_decay_factor),
+          ENERGY_DECAY_MIN(energy_decay_min),
+          ENERGY_DECAY_MAX(energy_decay_max)
     {
     }
 
@@ -72,7 +88,11 @@ public:
             j.value("log_scale_base", DEFAULT_LOG_SCALE_BASE),
             j.value("anim_speed", DEFAULT_ANIMATION_SPEED),
             j.value("energy_attack_factor", DEFAULT_ENERGY_ATTACK_FACTOR),
-            j.value("energy_decay_factor", DEFAULT_ENERGY_DECAY_FACTOR));
+            j.value("energy_attack_min", DEFAULT_ENERGY_ATTACK_MIN),
+            j.value("energy_attack_max", DEFAULT_ENERGY_ATTACK_MAX),
+            j.value("energy_decay_factor", DEFAULT_ENERGY_DECAY_FACTOR),
+            j.value("energy_decay_min", DEFAULT_ENERGY_DECAY_MIN),
+            j.value("energy_decay_max", DEFAULT_ENERGY_DECAY_MAX));
 
         httpd_resp_sendstr(req, "AudioSpectrumState set successfully");
         return ESP_OK;
@@ -184,8 +204,8 @@ public:
         energy /= LedMatrix::MATRIX_WIDTH;
         dyn_attack_ = 1.0f + energy * ENERGY_ATTACK_FACTOR;
         dyn_decay_ = 1.0f - energy * ENERGY_DECAY_FACTOR;
-        dyn_attack_ = std::min(std::max(dyn_attack_, 0.2f), 0.95f); // Higher max, higher min
-        dyn_decay_ = std::min(std::max(dyn_decay_, 0.5f), 0.95f); // Lower min for faster decay
+        dyn_attack_ = std::min(std::max(dyn_attack_, ENERGY_ATTACK_MIN), ENERGY_ATTACK_MAX);
+        dyn_decay_ = std::min(std::max(dyn_decay_, ENERGY_DECAY_MIN), ENERGY_DECAY_MAX);
 
         // Display
 
