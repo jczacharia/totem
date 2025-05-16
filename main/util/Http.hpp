@@ -2,19 +2,15 @@
 
 #include <expected>
 
-#include "esp_attr.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
 
 namespace util::http
 {
-    inline std::expected<std::string, esp_err_t> get_req_body(httpd_req_t* req, const char* tag = nullptr)
+    inline std::expected<std::string, esp_err_t> get_req_body(httpd_req_t* req, const std::string& tag)
     {
         const auto free_mem = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
-        if (tag != nullptr)
-        {
-            ESP_LOGI(tag, "Received content with length=%d, heap available=%d", req->content_len, free_mem);
-        }
+        ESP_LOGI(tag.c_str(), "Received content with length=%d, heap available=%d", req->content_len, free_mem);
 
         if (req->content_len == 0)
         {

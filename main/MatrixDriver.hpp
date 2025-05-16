@@ -13,20 +13,21 @@
 #include "rom/lldesc.h"
 #include "soc/gpio_sig_map.h"
 
-
-class LedMatrix final
+class MatrixDriver final
 {
 public:
-    static constexpr uint8_t MATRIX_WIDTH = 64;
-    static constexpr uint8_t MATRIX_HEIGHT = 64;
-    static constexpr uint16_t MATRIX_SIZE = MATRIX_WIDTH * MATRIX_HEIGHT;
-    static constexpr uint16_t MATRIX_BUFFER_SIZE = MATRIX_SIZE * sizeof(uint32_t);
+    static constexpr uint8_t WIDTH = 64;
+    static constexpr uint8_t HEIGHT = 64;
+    static constexpr uint16_t SIZE = WIDTH * HEIGHT;
+    static constexpr uint16_t BUF_SIZE = SIZE * sizeof(uint32_t);
+
+    MatrixDriver() = delete;
 
 private:
-    static constexpr auto TAG = "LedMatrix";
+    static constexpr auto TAG = "MatrixDriver";
 
-    static constexpr uint8_t MATRIX_ROWS_PER_FRAME = MATRIX_HEIGHT / 2;
-    static constexpr uint8_t MATRIX_PIXELS_PER_ROW = MATRIX_WIDTH;
+    static constexpr uint8_t MATRIX_ROWS_PER_FRAME = HEIGHT / 2;
+    static constexpr uint8_t MATRIX_PIXELS_PER_ROW = WIDTH;
     static constexpr uint8_t MATRIX_COLOR_DEPTH = 8;
 
     static constexpr uint32_t PIN_R1 = 27;
@@ -112,9 +113,9 @@ private:
         226, 228, 230, 232, 233, 235, 237, 239, 241, 243, 245, 247, 249, 251, 253, 255,
     };
 
-    lldesc_t* dma_desc_ = nullptr;
+    static lldesc_t* dma_desc_;
 
-    [[nodiscard]] volatile uint16_t* dmaDescAt(const size_t idx) const
+    [[nodiscard]] static volatile uint16_t* dmaDescAt(const size_t idx)
     {
         return reinterpret_cast<volatile uint16_t*>(const_cast<uint8_t*>(dma_desc_[idx].buf));
     }
@@ -146,7 +147,7 @@ private:
     }
 
 public:
-    esp_err_t start()
+    static esp_err_t start()
     {
         esp_err_t err = ESP_OK;
         ESP_LOGI(TAG, "Starting...");
@@ -177,7 +178,7 @@ public:
 
         for (size_t r = 0; r < MATRIX_ROWS_PER_FRAME; r++)
         {
-            uint16_t abcde = static_cast<uint16_t>(r);
+            auto abcde = static_cast<uint16_t>(r);
             abcde <<= BITS_ABCDE_OFFSET;
 
             for (size_t d = 0; d < MATRIX_COLOR_DEPTH; d++)
@@ -318,19 +319,19 @@ public:
         return err;
     }
 
-    ~LedMatrix()
+    static void stop()
     {
         ESP_LOGI(TAG, "Destroying...");
         if (dma_desc_) heap_caps_free(dma_desc_);
         ESP_LOGI(TAG, "Destroyed");
     }
 
-    void loadFromBuffer(const std::array<uint32_t, MATRIX_SIZE>& buffer) const
+    static void loadFromBuffer(const std::array<uint32_t, SIZE>& buffer)
     {
         loadFromBuffer(buffer.data());
     }
 
-    void loadFromBuffer(const volatile uint32_t* buffer) const
+    static void loadFromBuffer(const volatile uint32_t* buffer)
     {
         if (buffer == nullptr)
         {
@@ -362,7 +363,7 @@ public:
         }
     }
 
-    void setBrightness(const uint8_t brightness) const
+    static void setBrightness(const uint8_t brightness)
     {
         constexpr uint8_t _depth = MATRIX_COLOR_DEPTH;
         constexpr uint16_t _width = MATRIX_PIXELS_PER_ROW;
@@ -416,3 +417,5 @@ public:
         while (row_idx);
     }
 };
+
+lldesc_t* MatrixDriver::dma_desc_;

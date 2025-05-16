@@ -41,11 +41,7 @@ public:
         cfg.stack_size = stack_size_;
         cfg.prio = priority_;
         esp_pthread_set_cfg(&cfg);
-
-        thread_ = std::thread([this, func = std::move(thread_func)]()
-        {
-            func(running_);
-        });
+        thread_ = std::thread([this, func = std::move(thread_func)] { func(running_); });
     }
 
     void stop()
@@ -64,7 +60,7 @@ public:
         }
     }
 
-    bool isRunning() const
+    [[nodiscard]] bool isRunning() const
     {
         return running_.load();
     }

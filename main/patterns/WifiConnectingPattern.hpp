@@ -72,8 +72,8 @@ class WifiConnectingPattern final : public PatternBase
     }
 
     // Draw a filled circle
-    static void drawFilledCircle(MatrixGfx& gfx, const uint8_t x, const uint8_t y, const uint8_t radius,
-                                 const uint8_t r, const uint8_t g, const uint8_t b)
+    void drawFilledCircle(const uint8_t x, const uint8_t y, const uint8_t radius,
+                          const uint8_t r, const uint8_t g, const uint8_t b)
     {
         for (int16_t dx = -radius; dx <= radius; dx++)
         {
@@ -81,16 +81,16 @@ class WifiConnectingPattern final : public PatternBase
             {
                 if (dx * dx + dy * dy <= radius * radius)
                 {
-                    gfx.draw_pixel_rgb(x + dx, y + dy, r, g, b);
+                    draw_pixel_rgb(x + dx, y + dy, r, g, b);
                 }
             }
         }
     }
 
     // Draw an arc
-    static void drawArc(MatrixGfx& gfx, const uint8_t x, const uint8_t y, const uint8_t radius, const uint8_t thickness,
-                        const uint16_t start_angle, const uint16_t end_angle, const uint8_t r, const uint8_t g,
-                        const uint8_t b)
+    void drawArc(const uint8_t x, const uint8_t y, const uint8_t radius, const uint8_t thickness,
+                 const uint16_t start_angle, const uint16_t end_angle, const uint8_t r, const uint8_t g,
+                 const uint8_t b)
     {
         // Convert angles to radians
         const float start_rad = start_angle * M_PI / 180.0f;
@@ -114,7 +114,7 @@ class WifiConnectingPattern final : public PatternBase
                     // Check if angle is within arc's angle range
                     if (angle >= start_rad && angle <= end_rad)
                     {
-                        gfx.draw_pixel_rgb(x + dx, y + dy, r, g, b);
+                        draw_pixel_rgb(x + dx, y + dy, r, g, b);
                     }
                 }
             }
@@ -122,10 +122,8 @@ class WifiConnectingPattern final : public PatternBase
     }
 
     // Draw the WiFi symbol with animation
-    void drawWiFiSymbol(MatrixGfx& gfx)
+    void drawWiFiSymbol()
     {
-        const uint8_t global_brightness = getBrightness();
-
         // Draw each arc with animation
         for (uint8_t i = 0; i < NUM_ARCS; i++)
         {
@@ -136,30 +134,26 @@ class WifiConnectingPattern final : public PatternBase
             const uint8_t progress = calculateArcProgress(NUM_ARCS - i - 1);
 
             // Calculate color with animation progress and global brightness
-            const uint8_t r = static_cast<uint8_t>((static_cast<uint16_t>(WIFI_R) * progress / 255) * global_brightness
-                / 255);
-            const uint8_t g = static_cast<uint8_t>((static_cast<uint16_t>(WIFI_G) * progress / 255) * global_brightness
-                / 255);
-            const uint8_t b = static_cast<uint8_t>((static_cast<uint16_t>(WIFI_B) * progress / 255) * global_brightness
-                / 255);
+            const uint8_t r = static_cast<uint8_t>((static_cast<uint16_t>(WIFI_R) * progress / 255));
+            const uint8_t g = static_cast<uint8_t>((static_cast<uint16_t>(WIFI_G) * progress / 255));
+            const uint8_t b = static_cast<uint8_t>((static_cast<uint16_t>(WIFI_B) * progress / 255));
 
             // Draw the arc
-            drawArc(gfx, CENTER_X, CENTER_Y, radius, ARC_THICKNESS,
-                    ARC_START_ANGLE, ARC_END_ANGLE, r, g, b);
+            drawArc(CENTER_X, CENTER_Y, radius, ARC_THICKNESS, ARC_START_ANGLE, ARC_END_ANGLE, r, g, b);
         }
 
         // Draw the WiFi dot with pulsing animation
         const uint8_t dot_brightness = calculateDotBrightness();
         const uint8_t r = static_cast<uint8_t>(
-            (static_cast<uint16_t>(WIFI_R) * dot_brightness / 255) * global_brightness / 255);
+            (static_cast<uint16_t>(WIFI_R) * dot_brightness / 255));
 
         const uint8_t g = static_cast<uint8_t>(
-            (static_cast<uint16_t>(WIFI_G) * dot_brightness / 255) * global_brightness / 255);
+            (static_cast<uint16_t>(WIFI_G) * dot_brightness / 255));
 
         const uint8_t b = static_cast<uint8_t>(
-            (static_cast<uint16_t>(WIFI_B) * dot_brightness / 255) * global_brightness / 255);
+            (static_cast<uint16_t>(WIFI_B) * dot_brightness / 255));
 
-        drawFilledCircle(gfx, CENTER_X, CENTER_Y, DOT_RADIUS, r, g, b);
+        drawFilledCircle(CENTER_X, CENTER_Y, DOT_RADIUS, r, g, b);
 
         // Increment frame counter
         frame_count_++;
@@ -172,33 +166,14 @@ class WifiConnectingPattern final : public PatternBase
     }
 
 public:
-    WifiConnectingPattern()
+    WifiConnectingPattern() : PatternBase("WifiConnectingPattern")
     {
         // Set default render speed for smooth animation
-        setRenderTick(pdMS_TO_TICKS(33)); // ~30fps
+        set_render_tick(pdMS_TO_TICKS(33)); // ~30fps
     }
 
-    void render(MatrixGfx& gfx) override
+    void render() override
     {
-        // Draw the WiFi symbol with animation
-        drawWiFiSymbol(gfx);
-
-        // Draw "Connecting" text at the bottom
-        gfx.set_cursor(3, LedMatrix::MATRIX_HEIGHT - (LedMatrix::MATRIX_HEIGHT / 3));
-        gfx.print("Connecting", TEXT_R, TEXT_G, TEXT_B);
-    }
-
-    static esp_err_t endpoint(httpd_req_t* req)
-    {
-        auto body_or_error = util::http::get_req_body(req, TAG);
-        if (!body_or_error) return body_or_error.error();
-
-        const auto j = nlohmann::json::parse(body_or_error.value());
-
-        const auto totem = static_cast<Totem*>(req->user_ctx);
-        totem->set_state<WifiConnectingPattern>();
-
-        httpd_resp_sendstr(req, "WifiConnectingPattern set successfully");
-        return ESP_OK;
+        drawWiFiSymbol();
     }
 };

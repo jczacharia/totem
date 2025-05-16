@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "nlohmann/json.hpp"
+
 namespace util::colors
 {
     static constexpr float RED = 0.0f;
@@ -89,16 +91,44 @@ namespace util::colors
         b = static_cast<uint8_t>(blue * 255.0f + 0.5f);
     }
 
-    /**
-     * @brief Rescales a value from [0,1] range to [min,max] range
-     * @param value Value to rescale in range [0,1]
-     * @param min Lower bound of target range
-     * @param max Upper bound of target range
-     * @return Rescaled value in range [min,max]
-     */
-    inline float rescale(const float value, const float min, const float max)
+    inline void rgb_to_hsl(const uint8_t r, const uint8_t g, const uint8_t b, float& h, float& s, float& l)
     {
-        const float clampedValue = std::clamp(value, 0.0f, 1.0f);
-        return min + clampedValue * (max - min);
+        // Convert RGB from [0,255] to [0,1]
+        const float rf = r / 255.0f;
+        const float gf = g / 255.0f;
+        const float bf = b / 255.0f;
+
+        const float max_val = std::max({rf, gf, bf});
+        const float min_val = std::min({rf, gf, bf});
+        const float delta = max_val - min_val;
+
+        // Calculate lightness
+        l = (max_val + min_val) / 2.0f;
+
+        // Calculate saturation
+        if (delta < 0.00001f)
+        {
+            h = 0.0f;
+            s = 0.0f;
+        }
+        else
+        {
+            s = delta / (1.0f - std::abs(2.0f * l - 1.0f));
+
+            // Calculate hue
+            if (max_val == rf)
+            {
+                h = (gf - bf) / delta + (gf < bf ? 6.0f : 0.0f);
+            }
+            else if (max_val == gf)
+            {
+                h = (bf - rf) / delta + 2.0f;
+            }
+            else // max_val == bf
+            {
+                h = (rf - gf) / delta + 4.0f;
+            }
+            h /= 6.0f;
+        }
     }
 }

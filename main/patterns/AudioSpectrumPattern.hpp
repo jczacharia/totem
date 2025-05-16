@@ -5,20 +5,19 @@
 #include <nlohmann/json.hpp>
 
 #include "Totem.hpp"
+#include "Microphone.hpp"
 #include "util/Math.h"
 
 class AudioSpectrumPattern final : public PatternBase
 {
-    static constexpr auto TAG = "AudioSpectrumPattern";
-
     static constexpr float DEFAULT_PEAK_HOLD_TIME = 3.0f;
     static constexpr float DEFAULT_BAND_NORM_FACTOR = 0.995f;
-    static constexpr float DEFAULT_LOG_SCALE_BASE = 1.0f;
+    static constexpr float DEFAULT_LOG_SCALE_BASE = 8.0f;
     static constexpr float DEFAULT_ANIMATION_SPEED = 0.0025f;
     static constexpr float DEFAULT_ENERGY_ATTACK_FACTOR = 10.0f;
     static constexpr float DEFAULT_ENERGY_ATTACK_MIN = 0.2f;
-    static constexpr float DEFAULT_ENERGY_ATTACK_MAX = 0.8f;
-    static constexpr float DEFAULT_ENERGY_DECAY_FACTOR = 0.01f;
+    static constexpr float DEFAULT_ENERGY_ATTACK_MAX = 0.9f;
+    static constexpr float DEFAULT_ENERGY_DECAY_FACTOR = 0.15f;
     static constexpr float DEFAULT_ENERGY_DECAY_MIN = 0.6f;
     static constexpr float DEFAULT_ENERGY_DECAY_MAX = 0.95f;
 
@@ -33,7 +32,7 @@ class AudioSpectrumPattern final : public PatternBase
     float ENERGY_DECAY_MIN;
     float ENERGY_DECAY_MAX;
 
-    using Spectrum = std::array<float, LedMatrix::MATRIX_WIDTH>;
+    using Spectrum = std::array<float, MatrixDriver::WIDTH>;
     Spectrum spectrum_{};
     Spectrum lastSpectrum_{};
     Spectrum peakLevels_{};
@@ -43,8 +42,6 @@ class AudioSpectrumPattern final : public PatternBase
 
     float dyn_attack_ = 1.0f;
     float dyn_decay_ = 1.0f;
-    float activityDecay = 0.9f;
-    float activityGain = 3.0f;
 
     float animationPhase_ = 0.0f;
     bool animationDirectionForward_ = true;
@@ -61,7 +58,8 @@ public:
         const float energy_decay_factor = DEFAULT_ENERGY_DECAY_FACTOR,
         const float energy_decay_min = DEFAULT_ENERGY_DECAY_MIN,
         const float energy_decay_max = DEFAULT_ENERGY_DECAY_MAX)
-        : PEAK_HOLD_TIME(peak_hold_time),
+        : PatternBase("AudioSpectrumPattern"),
+          PEAK_HOLD_TIME(peak_hold_time),
           BAND_NORM_FACTOR(band_normalization_factor),
           LOG_SCALE_BASE(log_scale_base),
           ANIMATION_SPEED(animation_speed),
@@ -74,67 +72,29 @@ public:
     {
     }
 
-    static esp_err_t endpoint(httpd_req_t* req)
+    void from_json(const nlohmann::basic_json<>& j) override
     {
-        auto body_or_error = util::http::get_req_body(req, TAG);
-        if (!body_or_error) return body_or_error.error();
-
-        const auto j = nlohmann::json::parse(body_or_error.value());
-
-        const auto totem = static_cast<Totem*>(req->user_ctx);
-        totem->set_state<AudioSpectrumPattern>(
-            j.value("peak_hold_time", DEFAULT_PEAK_HOLD_TIME),
-            j.value("band_norm_factor", DEFAULT_BAND_NORM_FACTOR),
-            j.value("log_scale_base", DEFAULT_LOG_SCALE_BASE),
-            j.value("anim_speed", DEFAULT_ANIMATION_SPEED),
-            j.value("energy_attack_factor", DEFAULT_ENERGY_ATTACK_FACTOR),
-            j.value("energy_attack_min", DEFAULT_ENERGY_ATTACK_MIN),
-            j.value("energy_attack_max", DEFAULT_ENERGY_ATTACK_MAX),
-            j.value("energy_decay_factor", DEFAULT_ENERGY_DECAY_FACTOR),
-            j.value("energy_decay_min", DEFAULT_ENERGY_DECAY_MIN),
-            j.value("energy_decay_max", DEFAULT_ENERGY_DECAY_MAX));
-
-        httpd_resp_sendstr(req, "AudioSpectrumPattern set successfully");
-        return ESP_OK;
+        PEAK_HOLD_TIME = j.value("peak_hold_time", DEFAULT_PEAK_HOLD_TIME);
+        BAND_NORM_FACTOR = j.value("band_norm_factor", DEFAULT_BAND_NORM_FACTOR);
+        LOG_SCALE_BASE = j.value("log_scale_base", DEFAULT_LOG_SCALE_BASE);
+        ANIMATION_SPEED = j.value("anim_speed", DEFAULT_ANIMATION_SPEED);
+        ENERGY_ATTACK_FACTOR = j.value("energy_attack_factor", DEFAULT_ENERGY_ATTACK_FACTOR);
+        ENERGY_ATTACK_MIN = j.value("energy_attack_min", DEFAULT_ENERGY_ATTACK_MIN);
+        ENERGY_ATTACK_MAX = j.value("energy_attack_max", DEFAULT_ENERGY_ATTACK_MAX);
+        ENERGY_DECAY_FACTOR = j.value("energy_decay_factor", DEFAULT_ENERGY_DECAY_FACTOR);
+        ENERGY_DECAY_MIN = j.value("energy_decay_min", DEFAULT_ENERGY_DECAY_MIN);
+        ENERGY_DECAY_MAX = j.value("energy_decay_max", DEFAULT_ENERGY_DECAY_MAX);
     }
 
-private:
-    void handle_anim_phase()
+    void render() override
     {
-        if (animationDirectionForward_)
-        {
-            animationPhase_ += ANIMATION_SPEED;
-            if (animationPhase_ >= 0.5f)
-            {
-                // 0.5 represents violet in our hue range (0.33 to 0.83)
-                animationPhase_ = 0.5f;
-                animationDirectionForward_ = false;
-            }
-        }
-        else
-        {
-            animationPhase_ -= ANIMATION_SPEED;
-            if (animationPhase_ <= 0.0f)
-            {
-                // 0.0 represents green in our remapped range
-                animationPhase_ = 0.0f;
-                animationDirectionForward_ = true;
-            }
-        }
-    }
-
-public:
-    void render(MatrixGfx& gfx) override
-    {
-        handle_anim_phase();
-
-        gfx.microphone.getSpectrum(spectrum_);
+        Microphone::getSpectrum(spectrum_);
 
         float energy = 0;
 
         // Apply logarithmic scaling and per-band normalization
 
-        for (size_t i = 0; i < LedMatrix::MATRIX_WIDTH; i++)
+        for (size_t i = 0; i < MatrixDriver::WIDTH; i++)
         {
             // Apply compression
             const float scaledValue = 1.0f + spectrum_[i] * LOG_SCALE_BASE;
@@ -146,21 +106,47 @@ public:
             spectrum_[i] = spectrum_[i] / normFactor;
 
             // Scale to matrix height
-            spectrum_[i] *= LedMatrix::MATRIX_HEIGHT;
+            spectrum_[i] *= MatrixDriver::HEIGHT;
             energy += spectrum_[i];
         }
 
         // Apply energy
 
-        energy /= LedMatrix::MATRIX_WIDTH;
+        energy /= MatrixDriver::WIDTH;
         dyn_attack_ = 1.0f + energy * ENERGY_ATTACK_FACTOR;
         dyn_decay_ = 1.0f - energy * ENERGY_DECAY_FACTOR;
         dyn_attack_ = std::min(std::max(dyn_attack_, ENERGY_ATTACK_MIN), ENERGY_ATTACK_MAX);
         dyn_decay_ = std::min(std::max(dyn_decay_, ENERGY_DECAY_MIN), ENERGY_DECAY_MAX);
 
+        // Update animation
+        updateAnimation();
+            }
+            
+            // Separated animation update function to allow partial renders
+            void updateAnimation() 
+            {
         // Display
 
-        for (uint8_t x = 0; x < LedMatrix::MATRIX_WIDTH; ++x)
+        if (animationDirectionForward_)
+        {
+            animationPhase_ += ANIMATION_SPEED;
+            if (animationPhase_ >= 1.0f)
+            {
+                animationPhase_ = 1.0f;
+                animationDirectionForward_ = false;
+            }
+        }
+        else
+        {
+            animationPhase_ -= ANIMATION_SPEED;
+            if (animationPhase_ <= 0.0f)
+            {
+                animationPhase_ = 0.0f;
+                animationDirectionForward_ = true;
+            }
+        }
+
+        for (uint8_t x = 0; x < MatrixDriver::WIDTH; ++x)
         {
             if (const float currentValue = spectrum_[x]; currentValue > lastSpectrum_[x])
             {
@@ -188,20 +174,23 @@ public:
                 }
             }
 
-            constexpr size_t m_height_size_t = LedMatrix::MATRIX_HEIGHT;
+            constexpr size_t m_height_size_t = MatrixDriver::HEIGHT;
             const size_t height = std::min(static_cast<size_t>(lastSpectrum_[x]), m_height_size_t);
             const size_t peakHeight = std::min(static_cast<size_t>(peakLevels_[x]), m_height_size_t - 1);
 
             for (uint8_t y = 0; y < height; ++y)
             {
-                const float norm = util::math::unit_norm(y, m_height_size_t);
-                const float hue = util::math::unit_lerp(util::colors::GREEN + animationPhase_, util::colors::RED, norm);
-                gfx.draw_pixel_hsv(x, m_height_size_t - 1 - y, hue);
+                using namespace util::math;
+                using namespace util::colors;
+                const float norm = unit_norm(y, m_height_size_t);
+                const float bottom_hue = unit_lerp(GREEN, MAGENTA, animationPhase_);
+                const float hue = unit_lerp(bottom_hue, RED, norm);
+                draw_pixel_hsv(x, m_height_size_t - 1 - y, hue);
             }
 
             if (peakHeight > 0)
             {
-                gfx.draw_pixel_hsv(x, m_height_size_t - 1 - peakHeight, 1.0f);
+                draw_pixel_rgb(x, m_height_size_t - 1 - peakHeight, 255, 255, 255);
             }
         }
     }

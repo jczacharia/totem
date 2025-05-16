@@ -3,9 +3,9 @@
 #include <memory>
 #include <mutex>
 
-#include "MatrixGfx.hpp"
 #include "nlohmann/json.hpp"
-#include "patterns/PatternBase.hpp"
+#include "PatternBase.hpp"
+#include "PatternRegistry.hpp"
 #include "util/Http.hpp"
 #include "util/ThreadManager.hpp"
 
@@ -13,38 +13,32 @@ class Totem final
 {
     static constexpr auto TAG = "Totem";
 
-    MatrixGfx& gfx_;
-    std::mutex state_mutex_;
-    std::atomic<uint8_t> brightness_{255};
-    std::shared_ptr<PatternBase> current_state_;
-
-    ThreadManager render_thread_{"totem_render_thread", 1, 8192, configMAX_PRIORITIES};
+    static std::atomic<uint8_t> brightness_;
+    static ThreadManager render_thread_;
+    static std::mutex state_mutex_;
+    static std::shared_ptr<PatternBase> active_pattern_;
 
 public:
-    explicit Totem(MatrixGfx& gfx) : gfx_(gfx)
-    {
-    }
+    Totem() = delete;
 
-    esp_err_t start()
+    static esp_err_t start()
     {
         ESP_LOGI(TAG, "Starting...");
 
-        render_thread_.start([this](const std::atomic<bool>& running)
+        render_thread_.start([](const std::atomic<bool>& running)
         {
-            TickType_t tick = PatternBase::DEFAULT_RENDER_TICK;
             while (running.load())
             {
                 {
                     std::lock_guard lock(state_mutex_);
-                    if (current_state_)
+                    if (active_pattern_)
                     {
-                        gfx_.clear();
-                        current_state_->render(gfx_);
-                        gfx_.flush(brightness_.load());
-                        tick = current_state_->getRenderTick();
+                        active_pattern_->clear();
+                        active_pattern_->render();
+                        MatrixDriver::loadFromBuffer(active_pattern_->get_buf());
                     }
                 }
-                vTaskDelay(tick);
+                vTaskDelay(pdMS_TO_TICKS(16));
             }
         });
 
@@ -52,26 +46,41 @@ public:
         return ESP_OK;
     }
 
-    template <typename TState, typename... TArgs>
-    void set_state(TArgs&&... args)
+    static void set_pattern(const std::shared_ptr<PatternBase>& pattern)
     {
         std::lock_guard lock(state_mutex_);
-        auto state = std::make_shared<TState>(std::forward<TArgs>(args)...);
-        current_state_ = state;
+        active_pattern_ = pattern;
     }
 
-    static esp_err_t brightness_endpoint(httpd_req_t* req)
+    template <typename TPattern, typename... TArgs>
+    static void set_pattern(TArgs&&... args)
     {
-        auto body_or_error = util::http::get_req_body(req, TAG);
-        if (!body_or_error) return body_or_error.error();
+        std::lock_guard lock(state_mutex_);
+        auto state = std::make_shared<TPattern>(std::forward<TArgs>(args)...);
+        active_pattern_ = state;
+    }
 
-        const auto j = nlohmann::json::parse(body_or_error.value());
+    [[nodiscard]] static esp_err_t set_pattern(const std::string& pattern_name)
+    {
+        const auto pattern = PatternRegistry::create_pattern(pattern_name);
+        if (pattern == nullptr)
+        {
+            return ESP_ERR_NOT_FOUND;
+        }
 
-        const auto totem = static_cast<Totem*>(req->user_ctx);
-        std::lock_guard lock(totem->state_mutex_);
-        totem->brightness_.store(j.value("brightness", 255));
-
-        httpd_resp_sendstr(req, "Brightness set successfully");
+        set_pattern(pattern);
         return ESP_OK;
     }
+
+    static void set_brightness(const uint8_t brightness)
+    {
+        std::lock_guard lock(state_mutex_);
+        brightness_.store(brightness);
+    }
 };
+
+
+std::atomic<uint8_t> Totem::brightness_{255};
+ThreadManager Totem::render_thread_("totem_render_thread", 1, 8192, configMAX_PRIORITIES);
+std::mutex Totem::state_mutex_;
+std::shared_ptr<PatternBase> Totem::active_pattern_;
